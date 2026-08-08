@@ -222,6 +222,23 @@ def _reject_denylisted_env_var(key: str) -> None:
     Centralised so both the regular and "secure" env writers share the
     same gate, and so the message is consistent for callers.
     """
+    # A locked NineGate build routes every model call through the gateway, and
+    # this is the one writer every surface shares — CLI `hermes env`, the
+    # desktop app's PUT /api/env, and the web dashboard. Refusing here closes
+    # all three at once, which matters because the process-level pin only runs
+    # at import: a value written into the live environment afterwards would
+    # otherwise outlive it.
+    try:
+        from agent import ninegate_leash as _leash
+
+        if _leash.is_locked() and _leash.refuses_env_write(key):
+            raise ValueError(_leash.env_write_refusal(key))
+    except ImportError:
+        # The agent package is not importable from every context this module
+        # is used in (early CLI paths, packaging checks). An unlocked build is
+        # the correct assumption there — the lock only ever adds refusals.
+        pass
+
     if key in _ENV_VAR_NAME_DENYLIST:
         raise ValueError(
             f"Environment variable {key!r} is on the writer denylist. "

@@ -37,6 +37,8 @@ import { ConfigSettings } from './config-settings'
 import { SECTIONS } from './constants'
 import { GatewaySettings } from './gateway-settings'
 import { KeybindSettings } from './keybind-settings'
+import { useNineGate } from '@/lib/ninegate'
+import { NineGateSettings } from './ninegate-settings'
 import { KEYS_VIEWS, KeysSettings, type KeysView } from './keys-settings'
 import { NotificationsSettings } from './notifications-settings'
 import { PluginsSettings } from './plugins-settings'
@@ -47,6 +49,7 @@ import type { SettingsPageProps, SettingsView as SettingsViewId } from './types'
 const SETTINGS_VIEWS: readonly SettingsViewId[] = [
   ...SECTIONS.map(s => `config:${s.id}` as SettingsViewId),
   'providers',
+  'nineGate',
   'gateway',
   'keybinds',
   'keys',
@@ -81,6 +84,8 @@ export function SettingsView({ onClose, onConfigSaved, onMainModelChanged }: Set
   // sub-view is deep-linkable and survives a refresh.
   const [providerView, setProviderView] = useRouteEnumParam<ProviderView>('pview', PROVIDER_VIEWS, 'accounts')
   const [keysView] = useRouteEnumParam<KeysView>('kview', KEYS_VIEWS, 'tools')
+  // Drives what the settings nav is allowed to offer — see lib/ninegate.ts.
+  const nineGate = useNineGate()
 
   // Jump to a section + its sub-view in one navigate. Two sequential setters
   // would each read the same stale `search` and the second would clobber the
@@ -168,7 +173,26 @@ export function SettingsView({ onClose, onConfigSaved, onMainModelChanged }: Set
         label: t.settings.nav.billing,
         onSelect: () => setActiveView('billing')
       },
-      {
+      // The one account page a locked build has. Hidden on an unlocked one,
+      // where there is no subscription to show and the provider pages below
+      // are the real thing.
+      ...(nineGate.locked
+        ? [{
+            active: activeView === 'nineGate',
+            gapBefore: true,
+            icon: Zap,
+            id: 'nineGate',
+            label: 'Langganan NineGate',
+            onSelect: () => setActiveView('nineGate')
+          }]
+        : []),
+      // On a locked build every one of these three pages is a form that saves
+      // nothing: the provider is fixed, the key is the subscription's, and a
+      // custom endpoint would be ignored. Removed rather than disabled — a
+      // greyed-out page still reads as "something I could unlock".
+      ...(nineGate.locked
+        ? []
+        : [{
         active: activeView === 'providers',
         children: [
           {
@@ -198,7 +222,7 @@ export function SettingsView({ onClose, onConfigSaved, onMainModelChanged }: Set
         id: 'providers',
         label: t.settings.nav.providers,
         onSelect: () => setActiveView('providers')
-      },
+      }]),
       {
         active: activeView === 'gateway',
         icon: Globe,
@@ -259,7 +283,7 @@ export function SettingsView({ onClose, onConfigSaved, onMainModelChanged }: Set
         onSelect: () => setActiveView('about')
       }
     ],
-    [activeView, keysView, providerView, t, setActiveView, openProviderView, openKeysView]
+    [activeView, keysView, providerView, t, setActiveView, openProviderView, openKeysView, nineGate.locked]
   )
 
   const navFooter = (
@@ -314,7 +338,9 @@ export function SettingsView({ onClose, onConfigSaved, onMainModelChanged }: Set
               onConfigSaved={onConfigSaved}
               onMainModelChanged={onMainModelChanged}
             />
-          ) : activeView === 'providers' ? (
+          ) : activeView === 'nineGate' ? (
+            <NineGateSettings />
+          ) : activeView === 'providers' && !nineGate.locked ? (
             <ProvidersSettings
               onClose={onClose}
               onConfigSaved={onConfigSaved}

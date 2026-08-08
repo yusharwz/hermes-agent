@@ -6868,6 +6868,111 @@ def _catalog_provider_env_metadata() -> dict:
     return meta
 
 
+@app.get("/api/ninegate")
+async def get_ninegate_status():
+    """Whether this build is locked to NineGate, and to which gateway.
+
+    One endpoint rather than letting the renderer infer it from /api/env,
+    because the answer drives what the settings UI is allowed to show. Reading
+    it out of a list of environment variables would make the interface depend
+    on the shape of that list, and the two would drift.
+
+    The key is returned redacted. The desktop app needs to show the customer
+    WHICH key is active — so they can tell one subscription from another — and
+    that is a job for the last four characters, not the whole secret.
+    """
+    from agent import ninegate_leash as _leash
+
+    key = _leash.subscription_key()
+    return {
+        "locked": _leash.is_locked(),
+        "gateway": _leash.gateway_url() if _leash.is_locked() else "",
+        "key_present": bool(key),
+        "key_redacted": redact_key(key) if key else None,
+    }
+
+
+class NineGateLogin(BaseModel):
+    api_key: str
+
+
+@app.post("/api/ninegate/login")
+async def ninegate_login(body: NineGateLogin):
+    """Swaps the subscription key this installation runs on.
+
+    Verified against the gateway before it is saved. A key is a long opaque
+    string that customers copy out of a portal, and a truncated paste looks
+    exactly like a working one until the next message fails — by which point
+    the old, good key is already gone. Checking first means a bad paste costs
+    an error message instead of a working installation.
+
+    Written to .env AND applied to the running process, so the change takes
+    effect without a restart. Persisting only would leave the customer looking
+    at a new key in the settings page while every request still went out on the
+    old one.
+    """
+    import httpx
+
+    from agent import ninegate_leash as _leash
+    from hermes_cli.config import save_env_value
+
+    key = (body.api_key or "").strip()
+    if not key:
+        raise HTTPException(status_code=400, detail="API key kosong.")
+
+    gateway = _leash.gateway_url()
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            probe = await client.get(
+                f"{gateway}/v1/models",
+                headers={"Authorization": f"Bearer {key}"},
+            )
+    except Exception:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Tidak bisa menghubungi {gateway}. Periksa koneksi internet Anda.",
+        )
+
+    if probe.status_code in (401, 403):
+        raise HTTPException(status_code=401, detail="API key tidak dikenali atau sudah dinonaktifkan.")
+    if probe.status_code == 402:
+        raise HTTPException(status_code=402, detail="Langganan untuk key ini tidak aktif. Perpanjang paket Anda.")
+    if probe.status_code >= 400:
+        raise HTTPException(status_code=502, detail=f"Gateway menjawab {probe.status_code}.")
+
+    save_env_value(_leash.KEY_ENV, key)
+
+    # The live process, not just the file. engage() is one-shot by design, so
+    # the pin is reapplied here directly.
+    os.environ[_leash.KEY_ENV] = key
+    os.environ["OPENAI_API_KEY"] = key
+    os.environ["ANTHROPIC_AUTH_TOKEN"] = key
+
+    return {"ok": True, "key_redacted": redact_key(key)}
+
+
+@app.post("/api/ninegate/logout")
+async def ninegate_logout():
+    """Forgets the subscription key.
+
+    The installation stays locked to the gateway — logging out is not a way to
+    point Atlas somewhere else. It leaves a machine that cannot make requests
+    until a key is entered, which is what someone handing a laptop back wants.
+    """
+    from agent import ninegate_leash as _leash
+    from hermes_cli.config import remove_env_value
+
+    try:
+        remove_env_value(_leash.KEY_ENV)
+    except Exception:
+        _log.exception("ninegate logout: gagal menghapus dari .env")
+
+    for name in (_leash.KEY_ENV, "OPENAI_API_KEY", "ANTHROPIC_AUTH_TOKEN"):
+        os.environ.pop(name, None)
+
+    return {"ok": True}
+
+
 @app.get("/api/env")
 async def get_env_vars(profile: Optional[str] = None):
     with _profile_scope(profile):

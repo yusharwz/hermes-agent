@@ -19,6 +19,7 @@ import { DesktopInstallOverlay } from '@/components/desktop-install-overlay'
 import { FindBar } from '@/components/find-bar'
 import { GatewayConnectingOverlay } from '@/components/gateway-connecting-overlay'
 import { NotificationStack } from '@/components/notifications'
+import { NineGateLoginOverlay } from '@/components/ninegate-login-overlay'
 import { DesktopOnboardingOverlay } from '@/components/onboarding'
 import { $newSessionTabAction, registerPaneCloser } from '@/components/pane-shell/tree/store'
 import { FloatingPet } from '@/components/pet/floating-pet'
@@ -1005,6 +1006,10 @@ export function ContribWiring({ children }: { children: ReactNode }) {
       {/* The full real overlay set (mirrors DesktopController's `overlays`). */}
       <RemoteDisplayBanner />
       {!isSecondaryWindow() && <DesktopInstallOverlay />}
+      {/* Ahead of the provider onboarding below: on a locked build that flow
+          asks which provider you want, which is a question this build has
+          already answered. Renders nothing at all when unlocked. */}
+      {!isSecondaryWindow() && <NineGateLoginOverlay enabled={gatewayState === 'open'} />}
       {!isSecondaryWindow() && (
         <DesktopOnboardingOverlay
           enabled={gatewayState === 'open'}

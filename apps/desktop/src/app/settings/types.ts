@@ -10,6 +10,7 @@ export type SettingsView =
   | 'gateway'
   | 'keybinds'
   | 'keys'
+  | 'nineGate'
   | 'notifications'
   | 'plugins'
   | 'providers'

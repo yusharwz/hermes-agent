@@ -2231,6 +2231,19 @@ def switch_model(agent, new_model, new_provider, api_key='', base_url='', api_mo
     turn-scoped).
     """
     from hermes_cli.providers import determine_api_mode
+    from agent import ninegate_leash as _leash
+
+    # ── A locked build cannot be switched off the gateway ──
+    # /model is the one place a running agent can be handed a fresh endpoint
+    # and credential, so the same clamp that guards startup guards it here.
+    # The model itself still changes; only where it is served from does not.
+    if _leash.is_locked():
+        base_url, api_key = _leash.clamp(
+            base_url,
+            api_key,
+            anthropic=str(api_mode or "").strip().lower() in ("anthropic", "messages"),
+        )
+        new_provider = agent.provider or ""
 
     # ── Determine api_mode if not provided ──
     # Pass model so dual-wire providers (Nous Portal anthropic/* → Messages)

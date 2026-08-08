@@ -40,6 +40,7 @@ from agent.model_metadata import (
     query_ollama_num_ctx,
 )
 from agent.process_bootstrap import _install_safe_stdio
+from agent import ninegate_leash as _leash
 from agent.subdirectory_hints import SubdirectoryHintTracker
 from agent.think_scrubber import StreamingThinkScrubber
 from agent.tool_guardrails import (
@@ -568,6 +569,29 @@ def init_agent(
             remain skipped.
     """
     _install_safe_stdio()
+
+    # A locked build serves every model through the NineGate gateway, so a
+    # base_url or key that reached here from a config file, a CLI flag or a
+    # caller is replaced rather than honoured. On an unlocked build this
+    # returns both arguments exactly as they came in.
+    if _leash.is_locked():
+        # Said out loud rather than applied silently. Someone who passed
+        # --base-url, or copied a colleague's cli-config.yaml, is owed an
+        # explanation — otherwise the flag looks broken and the next step is a
+        # support ticket about "Atlas ignoring my config".
+        if _leash.rejects(base_url):
+            print(_leash.refusal(base_url))
+
+        base_url, api_key = _leash.clamp(
+            base_url,
+            api_key,
+            anthropic=str(api_mode or "").strip().lower() in ("anthropic", "messages"),
+        )
+        # The named providers each carry their own endpoint and their own
+        # credential lookup; on a locked build there is exactly one of each, so
+        # a provider name here can only route around the gateway.
+        provider = None
+        requested_provider = None
 
     agent.model = model
     agent.max_iterations = max_iterations
