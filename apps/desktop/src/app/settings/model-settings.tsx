@@ -24,6 +24,7 @@ import type {
   StaleAuxAssignment
 } from '@/hermes'
 import { useI18n } from '@/i18n'
+import { useNineGate } from '@/lib/ninegate'
 import { AlertTriangle, Cpu, Loader2 } from '@/lib/icons'
 import { DEFAULT_REASONING_EFFORT, REASONING_EFFORT_VALUES } from '@/lib/reasoning-effort'
 import { cn } from '@/lib/utils'
@@ -185,6 +186,7 @@ interface ModelSettingsProps {
 export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
   const { t } = useI18n()
   const m = t.settings.model
+  const nineGate = useNineGate()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [mainModel, setMainModel] = useState<{ model: string; provider: string } | null>(null)
@@ -318,7 +320,14 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
   // models to choose. `api_key` providers can be activated inline (paste key);
   // OAuth / external flows hand off to the onboarding sign-in.
   const needsSetup = !!selectedProvider && !isProviderReady(selectedProviderRow)
-  const setupIsApiKey = needsSetup && selectedProviderRow?.auth_type === 'api_key' && !!selectedProviderRow?.key_env
+  // On a locked build the backend refuses to persist any provider credential
+  // but the subscription's, so offering the inline paste would present a form
+  // that always fails. The model still comes from the gateway either way.
+  const setupIsApiKey =
+    !nineGate.locked &&
+    needsSetup &&
+    selectedProviderRow?.auth_type === 'api_key' &&
+    !!selectedProviderRow?.key_env
 
   // Clear any half-typed key when switching provider so it can't leak across.
   useEffect(() => {
@@ -828,9 +837,11 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
         </div>
         {needsSetup && !setupIsApiKey && selectedProviderRow && (
           <p className="mt-2 text-xs text-muted-foreground">
-            {selectedProviderRow?.auth_type === 'api_key'
-              ? `${selectedProviderRow?.name} needs an API key — set it up to choose a model.`
-              : `${selectedProviderRow?.name} signs in through your browser — Hermes runs the flow for you.`}
+            {nineGate.locked
+              ? `${selectedProviderRow?.name} tidak termasuk langganan NineGate Anda.`
+              : selectedProviderRow?.auth_type === 'api_key'
+                ? `${selectedProviderRow?.name} needs an API key — set it up to choose a model.`
+                : `${selectedProviderRow?.name} signs in through your browser — Hermes runs the flow for you.`}
           </p>
         )}
         {config && mainModel && (reasoningSupported || fastSupported) && (
