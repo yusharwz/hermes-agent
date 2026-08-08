@@ -159,7 +159,13 @@ export function ContribWiring({ children }: { children: ReactNode }) {
 
   const gatewayState = useStore($gatewayState)
   // Decides whether the provider onboarding below is offered at all.
-  const nineGateLocked = useNineGate().locked
+  //
+  // Waits for `resolved`: the hook answers "unlocked" until the backend
+  // replies, so mounting on the default would flash the provider chooser for a
+  // frame or two before removing it — which looks exactly like the bug this
+  // gate exists to fix.
+  const nineGate = useNineGate()
+  const showProviderOnboarding = nineGate.resolved && !nineGate.locked
   const activeSessionId = useStore($activeSessionId)
   const billingSettingsRequest = useStore($billingSettingsRequest)
   const currentCwd = useStore($currentCwd)
@@ -1018,7 +1024,7 @@ export function ContribWiring({ children }: { children: ReactNode }) {
           not enough: once a key exists the login renders nothing, and this
           flow then asks which provider to sign into — a question a locked
           build has already answered, offering choices that do not exist. */}
-      {!isSecondaryWindow() && !nineGateLocked && (
+      {!isSecondaryWindow() && showProviderOnboarding && (
         <DesktopOnboardingOverlay
           enabled={gatewayState === 'open'}
           onCompleted={() => {

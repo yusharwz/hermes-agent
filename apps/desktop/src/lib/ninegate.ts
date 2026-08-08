@@ -21,13 +21,23 @@ export type NineGateStatus = {
   gateway: string
   keyPresent: boolean
   keyRedacted: string | null
+  /**
+   * False until the backend has answered.
+   *
+   * Callers that REMOVE something when locked must wait for this. The default
+   * is "unlocked", so acting before the answer arrives shows the thing for a
+   * frame or two — and a provider chooser that flashes up and vanishes looks
+   * exactly like the bug it was supposed to fix.
+   */
+  resolved: boolean
 }
 
 const UNLOCKED: NineGateStatus = {
   gateway: '',
   keyPresent: false,
   keyRedacted: null,
-  locked: false
+  locked: false,
+  resolved: false
 }
 
 type StatusPayload = {
@@ -43,7 +53,8 @@ export async function fetchNineGateStatus(): Promise<NineGateStatus> {
     gateway: payload.gateway ?? '',
     keyPresent: Boolean(payload.key_present),
     keyRedacted: payload.key_redacted ?? null,
-    locked: Boolean(payload.locked)
+    locked: Boolean(payload.locked),
+    resolved: true
   }
 }
 
@@ -68,7 +79,9 @@ export function useNineGate(): NineGateStatus {
         if (!cancelled) setStatus(next)
       } catch {
         // An older backend has no /api/ninegate. That build predates the lock,
-        // so unlocked is the correct answer rather than an error to surface.
+        // so unlocked is the correct answer rather than an error to surface —
+        // but it IS an answer, so callers stop waiting.
+        if (!cancelled) setStatus({ ...UNLOCKED, resolved: true })
       }
     })()
 
