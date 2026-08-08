@@ -18,6 +18,7 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog'
 import { HighlightMatches } from './ui/highlight-matches'
 import { Skeleton } from './ui/skeleton'
+import { useNineGate } from '@/lib/ninegate'
 
 interface ModelPickerDialogProps {
   open: boolean
@@ -78,6 +79,8 @@ export function ModelPickerDialog({
       : String(modelOptions.error)
     : null
 
+  const nineGateLocked = useNineGate().locked
+
   const selectModel = (provider: ModelOptionProvider, model: string) => {
     onSelect({ provider: provider.slug, model })
     onOpenChange(false)
@@ -120,9 +123,15 @@ export function ModelPickerDialog({
         </Command>
 
         <DialogFooter className="flex-row items-center justify-end gap-2 bg-card p-3">
-          <Button onClick={addProvider} variant="ghost">
-            {copy.addProvider}
-          </Button>
+          {/* Hidden on a locked build. The onboarding it opens is unmounted
+              there, so the button would look like a button and do nothing —
+              which is worse than not offering it, because the customer then
+              wonders what they did wrong. */}
+          {nineGateLocked ? null : (
+            <Button onClick={addProvider} variant="ghost">
+              {copy.addProvider}
+            </Button>
+          )}
           <Button onClick={() => onOpenChange(false)} variant="outline">
             {t.common.cancel}
           </Button>
