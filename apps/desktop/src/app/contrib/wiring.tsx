@@ -20,6 +20,7 @@ import { FindBar } from '@/components/find-bar'
 import { GatewayConnectingOverlay } from '@/components/gateway-connecting-overlay'
 import { NotificationStack } from '@/components/notifications'
 import { NineGateLoginOverlay } from '@/components/ninegate-login-overlay'
+import { useNineGate } from '@/lib/ninegate'
 import { DesktopOnboardingOverlay } from '@/components/onboarding'
 import { $newSessionTabAction, registerPaneCloser } from '@/components/pane-shell/tree/store'
 import { FloatingPet } from '@/components/pet/floating-pet'
@@ -157,6 +158,8 @@ export function ContribWiring({ children }: { children: ReactNode }) {
   const actionsRef = useRef<WiringActions | null>(null)
 
   const gatewayState = useStore($gatewayState)
+  // Decides whether the provider onboarding below is offered at all.
+  const nineGateLocked = useNineGate().locked
   const activeSessionId = useStore($activeSessionId)
   const billingSettingsRequest = useStore($billingSettingsRequest)
   const currentCwd = useStore($currentCwd)
@@ -1010,7 +1013,12 @@ export function ContribWiring({ children }: { children: ReactNode }) {
           asks which provider you want, which is a question this build has
           already answered. Renders nothing at all when unlocked. */}
       {!isSecondaryWindow() && <NineGateLoginOverlay enabled={gatewayState === 'open'} />}
-      {!isSecondaryWindow() && (
+      {/* The provider onboarding is REPLACED on a locked build, not merely
+          preceded by the NineGate login. Adding the login in front of it was
+          not enough: once a key exists the login renders nothing, and this
+          flow then asks which provider to sign into — a question a locked
+          build has already answered, offering choices that do not exist. */}
+      {!isSecondaryWindow() && !nineGateLocked && (
         <DesktopOnboardingOverlay
           enabled={gatewayState === 'open'}
           onCompleted={() => {
