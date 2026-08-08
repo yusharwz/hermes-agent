@@ -36,10 +36,43 @@ function electronBuilderCli() {
   return path.join(path.dirname(pkgJson), rel)
 }
 
+/**
+ * Whether this run targets the machine it is running on.
+ *
+ * The installed Electron dist is for the HOST platform, so reusing it is only
+ * correct when host and target agree. Cross-building — `--win` from Linux, say
+ * — handed electron-builder a Linux dist and it then failed trying to rename
+ * an `electron.exe` that was never there.
+ *
+ * Absent an explicit flag, electron-builder targets the host, so no flag means
+ * native.
+ */
+function targetsHost(argv) {
+  const requested = ["--win", "--windows", "--mac", "--macos", "--linux"].filter((flag) =>
+    argv.includes(flag)
+  )
+  if (requested.length === 0) return true
+
+  const host =
+    process.platform === "win32" ? ["--win", "--windows"]
+    : process.platform === "darwin" ? ["--mac", "--macos"]
+    : ["--linux"]
+
+  // Every requested target must be the host's, not merely one of them: a
+  // `--linux --win` run still needs Electron fetched for Windows.
+  return requested.every((flag) => host.includes(flag))
+}
+
+const forHost = targetsHost(process.argv.slice(2))
 const dist = electronDistDir()
 const args = []
-if (dist && fs.existsSync(distBinary(dist))) {
+if (forHost && dist && fs.existsSync(distBinary(dist))) {
   args.push(`-c.electronDist=${dist}`)
+} else if (!forHost) {
+  console.warn(
+    "[run-electron-builder] cross-building; letting electron-builder fetch the " +
+      "target platform's Electron rather than reusing this machine's."
+  )
 } else {
   console.warn(
     "[run-electron-builder] no local electron dist; electron-builder will fetch " +
