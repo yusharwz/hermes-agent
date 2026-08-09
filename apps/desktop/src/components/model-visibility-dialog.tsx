@@ -26,6 +26,7 @@ import {
 } from '@/store/model-visibility'
 import { $collapsedProviders, toggleCollapsedProvider } from '@/store/provider-collapse'
 import type { ModelOptionProvider, ModelOptionsResponse } from '@/types/hermes'
+import { useNineGate } from '@/lib/ninegate'
 
 interface ModelVisibilityDialogProps {
   gw?: HermesGateway
@@ -44,6 +45,7 @@ export function ModelVisibilityDialog({
   profile = 'default',
   sessionId
 }: ModelVisibilityDialogProps) {
+  const nineGateLocked = useNineGate().locked
   const { t } = useI18n()
   const copy = t.modelVisibility
   const [search, setSearch] = useState('')
@@ -168,20 +170,26 @@ export function ModelVisibilityDialog({
           )}
         </div>
 
-        <div className="px-3 py-2">
-          <Button
-            className="-ml-2 text-(--ui-text-tertiary)"
-            onClick={() => {
-              onOpenChange(false)
-              onOpenProviders()
-            }}
-            size="xs"
-            type="button"
-            variant="text"
-          >
-            {copy.addProvider}
-          </Button>
-        </div>
+        {/* Hidden on a locked build, like its sibling in the model picker. The
+            Providers page it opens does not exist there, so the button was a
+            button that did nothing — and now that the route redirects, it
+            would bounce the customer to a page they did not ask for. */}
+        {nineGateLocked ? null : (
+          <div className="px-3 py-2">
+            <Button
+              className="-ml-2 text-(--ui-text-tertiary)"
+              onClick={() => {
+                onOpenChange(false)
+                onOpenProviders()
+              }}
+              size="xs"
+              type="button"
+              variant="text"
+            >
+              {copy.addProvider}
+            </Button>
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   )

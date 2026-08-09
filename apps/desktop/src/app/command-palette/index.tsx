@@ -105,6 +105,7 @@ import { prettyName } from '../settings/helpers'
 import { usePaletteContributions } from './contrib'
 import { MarketplaceThemePage } from './marketplace-theme-page'
 import { PetInlineToggle, PetPalettePage } from './pet-palette-page'
+import { useNineGate } from '@/lib/ninegate'
 
 interface PaletteItem {
   /** Keybind action id — its live combo renders as a hotkey hint. */
@@ -398,18 +399,22 @@ const NON_CONFIG_SETTINGS: ReadonlyArray<{
   keywords?: string[]
   labelKey: NonConfigSettingsLabel
   tab: string
+  /** Only offered on an unlocked build — see the filter where these are mapped. */
+  unlockedOnly?: boolean
 }> = [
   {
     icon: Zap,
     keywords: ['accounts', 'sign in', 'oauth', 'login', 'subscription', 'models', 'anthropic', 'openai'],
     labelKey: 'providerAccounts',
-    tab: 'providers&pview=accounts'
+    tab: 'providers&pview=accounts',
+    unlockedOnly: true
   },
   {
     icon: KeyRound,
     keywords: ['providers', 'api key', 'keys', 'secrets', 'tokens', 'egress', 'iron proxy', 'sandbox proxy'],
     labelKey: 'providerApiKeys',
-    tab: 'providers&pview=keys'
+    tab: 'providers&pview=keys',
+    unlockedOnly: true
   },
   { icon: Globe, keywords: ['connection', 'messaging'], labelKey: 'gateway', tab: 'gateway' },
   {
@@ -523,6 +528,10 @@ export function CommandPalette() {
 
 function CommandPaletteBody({ onExited }: { onExited: () => void }) {
   const { t } = useI18n()
+  // Hides the provider entries below. The palette is the fastest way to reach
+  // a page, so an entry that leads to a page which no longer exists is the
+  // most annoying kind of dead end.
+  const nineGateLocked = useNineGate().locked
   const pendingPage = useStore($commandPalettePage)
   const bindings = useStore($bindings)
   const worktrees = useStore($repoWorktrees)
@@ -927,7 +936,7 @@ function CommandPaletteBody({ onExited }: { onExited: () => void }) {
             label: settingsSectionLabel(section),
             run: go(settingsTab(`config:${section.id}`))
           })),
-          ...NON_CONFIG_SETTINGS.map(entry => ({
+          ...NON_CONFIG_SETTINGS.filter(entry => !(entry.unlockedOnly && nineGateLocked)).map(entry => ({
             icon: entry.icon,
             id: `set-${entry.tab}`,
             keywords: ['settings', ...(entry.keywords ?? [])],

@@ -87,6 +87,23 @@ export function SettingsView({ onClose, onConfigSaved, onMainModelChanged }: Set
   // Drives what the settings nav is allowed to offer — see lib/ninegate.ts.
   const nineGate = useNineGate()
 
+  /**
+   * A locked build has no Providers page, but `?tab=providers` is still a
+   * valid enum value — bookmarks, the command palette and older deep links all
+   * still produce it. Left alone it falls through the render chain and lands
+   * on whatever comes next, which was Archived Chats: not an error, just the
+   * wrong page, which is harder to notice and harder to report.
+   *
+   * Redirected once the lock is known. Waiting for `resolved` matters: acting
+   * on the default would bounce an unlocked developer build away from a page
+   * it is entitled to.
+   */
+  useEffect(() => {
+    if (nineGate.resolved && nineGate.locked && activeView === 'providers') {
+      setActiveView('nineGate')
+    }
+  }, [nineGate.resolved, nineGate.locked, activeView, setActiveView])
+
   // Jump to a section + its sub-view in one navigate. Two sequential setters
   // would each read the same stale `search` and the second would clobber the
   // first's `tab` — so the sub-view never opened on narrow screens.
