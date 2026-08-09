@@ -179,7 +179,10 @@ export function ContribWiring({ children }: { children: ReactNode }) {
     billingSettingsSeenRef.current = billingSettingsRequest
 
     if (billingSettingsRequest > 0) {
-      navigate(`${SETTINGS_ROUTE}?tab=billing`)
+      // On a locked build the Billing page is gone and ?tab=billing redirects,
+      // so aim straight at the subscription page — where the quota that
+      // triggered this banner is actually shown.
+      navigate(`${SETTINGS_ROUTE}?tab=${nineGate.locked ? 'nineGate' : 'billing'}`)
     }
   }, [billingSettingsRequest, navigate])
   const freshDraftReady = useStore($freshDraftReady)
