@@ -20,6 +20,7 @@ import {
 
 import { ListRow, SectionHeading, SettingsContent } from './primitives'
 import { UninstallSection } from './uninstall-section'
+import { useNineGate } from '@/lib/ninegate'
 
 const RELEASE_NOTES_URL = 'https://github.com/NousResearch/hermes-agent/releases'
 
@@ -46,6 +47,7 @@ function relativeTime(ms: number | undefined, a: Translations['settings']['about
 }
 
 export function AboutSettings() {
+  const nineGateLocked = useNineGate().locked
   const { t } = useI18n()
   const a = t.settings.about
   const version = useStore($desktopVersion)
@@ -105,6 +107,20 @@ export function AboutSettings() {
         </div>
       </div>
 
+      {/* The whole update mechanism is removed on a locked build.
+          =====================================================
+          It checks, downloads and applies from
+          github.com/NousResearch/hermes-agent — the upstream project. Clicking
+          "update" on an Atlas install would pull Nous code over it: not a
+          cosmetic leak but a live path to breaking the customer's
+          installation, and one that also strips the NineGate lock along with
+          everything else built on top.
+
+          Atlas updates arrive through the installer instead, which is signed
+          for by the subscription and already tested. Until release metadata is
+          served from the NineGate gateway, offering no button is strictly
+          safer than offering one that points upstream. */}
+      {nineGateLocked ? null : (
       <div className="mx-auto mt-4 w-full max-w-2xl">
         <SectionHeading icon={RefreshCw} title={a.updates} />
 
@@ -175,7 +191,10 @@ export function AboutSettings() {
           hint={a.branchCommit(status?.branch ?? 'unknown', status?.currentSha?.slice(0, 7) ?? 'unknown')}
           title={a.automaticUpdates}
         />
+      </div>
+      )}
 
+      <div className="mx-auto mt-4 w-full max-w-2xl">
         <UninstallSection />
       </div>
     </SettingsContent>

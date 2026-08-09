@@ -49,6 +49,7 @@ import type { StatusResponse, UsageStats } from '@/types/hermes'
 
 import { CRON_ROUTE, SETTINGS_ROUTE, WEBHOOKS_ROUTE } from '../../routes'
 import type { StatusbarItem } from '../statusbar-controls'
+import { useNineGate } from '@/lib/ninegate'
 
 const EMPTY_USAGE = { calls: 0, input: 0, output: 0, total: 0 } as const
 
@@ -82,6 +83,7 @@ export function useStatusbarItems({
   statusSnapshot,
   toggleCommandCenter
 }: StatusbarItemsOptions) {
+  const nineGateLocked = useNineGate().locked
   const { t } = useI18n()
   const copy = t.shell.statusbar
   const fileMenu = t.fileMenu
@@ -564,12 +566,18 @@ export function useStatusbarItems({
         toggleLabel: copy.toggleTerminal,
         variant: 'action'
       },
-      clientVersionItem,
-      ...(backendVersionItem ? [backendVersionItem] : [])
+      // Both update items lead to the upstream self-update, which a locked
+      // build must not run — see the note on the About page. Dropped here too,
+      // because the status bar is the more likely place to click one: it
+      // announces itself as "update available" without the customer going
+      // looking.
+      ...(nineGateLocked ? [] : [clientVersionItem]),
+      ...(!nineGateLocked && backendVersionItem ? [backendVersionItem] : [])
     ],
     [
       activeSessionId,
       approvalModeItem,
+      nineGateLocked,
       backendVersionItem,
       busy,
       chatOpen,

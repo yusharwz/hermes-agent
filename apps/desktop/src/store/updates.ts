@@ -19,6 +19,7 @@ import { persistString, storedString } from '@/lib/storage'
 import { dismissNotification, notify } from '@/store/notifications'
 import { $connection } from '@/store/session'
 import type { BackendUpdateCheckResponse } from '@/types/hermes'
+import { fetchNineGateStatus } from '@/lib/ninegate'
 
 export interface UpdateApplyState {
   applying: boolean
@@ -667,6 +668,39 @@ let lastConnectionMode: string | undefined
 
 /** Wire up background polling + progress streaming. Idempotent. */
 export function startUpdatePoller(): void {
+  if (pollerStarted || typeof window === 'undefined') {
+    return
+  }
+
+  /**
+   * A locked build never checks for updates.
+   *
+   * Gated at the source rather than on each surface. The check feeds three
+   * separate places — the About card, two status-bar items, and a toast that
+   * appears unprompted offering "see what's new" — and closing them one by one
+   * leaves whichever is added next open by default. If the check never runs,
+   * there is nothing for any of them to show.
+   *
+   * What it would find is the upstream project, so applying it would pull Nous
+   * code over an Atlas install and take the NineGate lock with it. Atlas
+   * updates arrive through the installer.
+   *
+   * The lock is asked for BEFORE the poller is armed, not alongside it.
+   * Starting first and cancelling on the answer would let the first check —
+   * and its toast — fire in the gap.
+   */
+  void fetchNineGateStatus()
+    .then(status => {
+      if (!status.locked) armUpdatePoller()
+    })
+    .catch(() => {
+      // No /api/ninegate means a build older than the lock, which is an
+      // unlocked one. Behave as before.
+      armUpdatePoller()
+    })
+}
+
+function armUpdatePoller(): void {
   if (pollerStarted || typeof window === 'undefined') {
     return
   }
