@@ -768,18 +768,23 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
       <section>
         <p className="mb-3 text-xs text-muted-foreground">{m.appliesDesc}</p>
         <div className="flex flex-wrap items-center gap-2">
-          <Select onValueChange={setSelectedProvider} value={selectedProvider}>
-            <SelectTrigger className={cn('min-w-40', CONTROL_TEXT)}>
-              <SelectValue placeholder={m.provider} />
-            </SelectTrigger>
-            <SelectContent>
-              {mainProviderOptions.map(provider => (
-                <SelectItem key={provider.slug || 'none'} value={provider.slug || 'none'}>
-                  {provider.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          {/* A locked build serves every model from one gateway, so this
+              dropdown offers a choice of one. Hidden rather than disabled: a
+              greyed-out control still reads as something you could unlock. */}
+          {nineGate.locked ? null : (
+            <Select onValueChange={setSelectedProvider} value={selectedProvider}>
+              <SelectTrigger className={cn('min-w-40', CONTROL_TEXT)}>
+                <SelectValue placeholder={m.provider} />
+              </SelectTrigger>
+              <SelectContent>
+                {mainProviderOptions.map(provider => (
+                  <SelectItem key={provider.slug || 'none'} value={provider.slug || 'none'}>
+                    {provider.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
           {needsSetup ? (
             setupIsApiKey ? (
               <>
@@ -806,9 +811,15 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
                 </Button>
               </>
             ) : (
-              <Button onClick={startProviderSetup} size="sm" variant="textStrong">
-                Set up {selectedProviderRow?.name ?? 'provider'}
-              </Button>
+              nineGate.locked ? (
+                <p className="text-xs text-muted-foreground">
+                  {selectedProviderRow?.name ?? 'Model ini'} tidak termasuk paket NineGate Anda.
+                </p>
+              ) : (
+                <Button onClick={startProviderSetup} size="sm" variant="textStrong">
+                  Set up {selectedProviderRow?.name ?? 'provider'}
+                </Button>
+              )
             )
           ) : (
             <>
@@ -950,21 +961,25 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
                   below={
                     isEditing && (
                       <div className="mt-2 flex flex-wrap items-center gap-2 pt-1">
-                        <Select
-                          onValueChange={value => setAuxDraft(prev => ({ ...prev, provider: value, model: '' }))}
-                          value={auxDraft.provider}
-                        >
-                          <SelectTrigger className={cn('min-w-32', CONTROL_TEXT)}>
-                            <SelectValue placeholder={m.provider} />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {providerOptions.map(provider => (
-                              <SelectItem key={provider.slug || 'none'} value={provider.slug || 'none'}>
-                                {provider.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        {/* Same reason as the main picker: one gateway, so this
+                            is a choice of one. The model select beside it stays. */}
+                        {nineGate.locked ? null : (
+                          <Select
+                            onValueChange={value => setAuxDraft(prev => ({ ...prev, provider: value, model: '' }))}
+                            value={auxDraft.provider}
+                          >
+                            <SelectTrigger className={cn('min-w-32', CONTROL_TEXT)}>
+                              <SelectValue placeholder={m.provider} />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {providerOptions.map(provider => (
+                                <SelectItem key={provider.slug || 'none'} value={provider.slug || 'none'}>
+                                  {provider.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        )}
                         <Select
                           onValueChange={value => setAuxDraft(prev => ({ ...prev, model: value }))}
                           value={auxDraft.model}

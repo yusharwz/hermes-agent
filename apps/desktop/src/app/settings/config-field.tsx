@@ -15,6 +15,7 @@ import { FallbackModelsField } from './fallback-models-field'
 import { fieldCopyForSchemaKey } from './field-copy'
 import { ListRow } from './primitives'
 import { SearchableSelect } from './searchable-select'
+import { useNineGate } from '@/lib/ninegate'
 
 /**
  * One generic config row: label + description resolved from the i18n field
@@ -41,6 +42,7 @@ export function ConfigField({
   onChange: (value: unknown) => void
   descriptionExtra?: ReactNode
 }) {
+  const nineGateLocked = useNineGate().locked
   const { t } = useI18n()
   const c = t.settings.config
 
@@ -82,6 +84,13 @@ export function ConfigField({
   // `list` branch below would stringify them to "[object Object]". Render the
   // dedicated structured editor instead.
   if (schemaKey === 'fallback_providers') {
+    // A locked build has one gateway, so a chain of backup PROVIDERS has
+    // nothing to choose between. Fallback still happens — the gateway's combos
+    // try several models per request — it is just not the customer's to
+    // arrange, and an editor implying otherwise invites them to configure
+    // something with no effect.
+    if (nineGateLocked) return null
+
     return row(<FallbackModelsField onChange={onChange} value={value} />, true)
   }
 
