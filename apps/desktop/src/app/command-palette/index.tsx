@@ -880,14 +880,20 @@ function CommandPaletteBody({ onExited }: { onExited: () => void }) {
             label: cc.restartGateway,
             run: () => void runGatewayRestart()
           },
-          {
-            detail: updateVersionLabel,
-            icon: Download,
-            id: 'cc-update-hermes',
-            keywords: ['update', 'upgrade', 'hermes', 'version', 'system', 'restart'],
-            label: cc.updateHermes,
-            run: () => requestActiveUpdate()
-          }
+          // Applies the upstream self-update, which a locked build must never
+          // run. The palette is a particularly bad place to leave it: it takes
+          // one keystroke and a guessed word, with no page in between to make
+          // anyone pause.
+          ...(nineGateLocked
+            ? []
+            : [{
+                detail: updateVersionLabel,
+                icon: Download,
+                id: 'cc-update-hermes',
+                keywords: ['update', 'upgrade', 'hermes', 'version', 'system', 'restart'],
+                label: cc.updateHermes,
+                run: () => requestActiveUpdate()
+              }])
         ]
       },
       {

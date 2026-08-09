@@ -20,6 +20,7 @@ import { isSecondaryWindow } from '@/store/windows'
 
 import { requestComposerFocus, requestComposerInsert } from '../../chat/composer/focus'
 import { appViewForPath, isOverlayView, NEW_CHAT_ROUTE, sessionRoute } from '../../routes'
+import { fetchNineGateStatus } from '@/lib/ninegate'
 
 interface DesktopIntegrationsParams {
   chatOpen: boolean
@@ -52,7 +53,17 @@ export function useDesktopIntegrations({
   // process's "open updates" menu request.
   useEffect(() => {
     startUpdatePoller()
-    const unsubscribe = window.hermesDesktop?.onOpenUpdatesRequested?.(() => openUpdatesWindow())
+    // The native menu's "check for updates" does not go through any React
+    // surface, so gating the UI never reached it. On a locked build the window
+    // it opens describes an upstream update that must not be applied, so the
+    // request is answered by doing nothing.
+    const unsubscribe = window.hermesDesktop?.onOpenUpdatesRequested?.(() => {
+      void fetchNineGateStatus()
+        .then(status => {
+          if (!status.locked) openUpdatesWindow()
+        })
+        .catch(() => openUpdatesWindow())
+    })
 
     return () => {
       unsubscribe?.()
