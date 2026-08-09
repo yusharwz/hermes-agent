@@ -34,6 +34,7 @@ import type {
 import { EnvVarActionsMenu, EnvVarActionsTrigger, EnvVarContextMenu } from './env-var-actions-menu'
 import { Pill } from './primitives'
 import { VoiceProviderFields } from './voice-provider-fields'
+import { useNineGate } from '@/lib/ninegate'
 
 interface ToolsetConfigPanelProps {
   toolset: string
@@ -487,6 +488,7 @@ function ModelCatalogPicker({ toolset, providerName, isActiveBackend }: ModelCat
 }
 
 export function ToolsetConfigPanel({ toolset, onConfiguredChange }: ToolsetConfigPanelProps) {
+  const nineGateLocked = useNineGate().locked
   const { t } = useI18n()
   const copy = t.settings.toolsets
   const [cfg, setCfg] = useState<ToolsetConfig | null>(null)
@@ -587,7 +589,17 @@ export function ToolsetConfigPanel({ toolset, onConfiguredChange }: ToolsetConfi
           : current
       )
 
-      if (result.needs_nous_auth) {
+      if (result.needs_nous_auth && nineGateLocked) {
+        // A locked build has no Nous account and never will, so offering a
+        // sign-in that cannot succeed is worse than saying no: the customer
+        // spends a minute on a login screen to arrive back where they started.
+        // What they can act on is their plan.
+        notify({
+          kind: 'warning',
+          title: copy.nousAuthNeededTitle,
+          message: `${provider.name} tidak termasuk paket NineGate Anda.`
+        })
+      } else if (result.needs_nous_auth) {
         // Managed Nous row selected without Portal entitlement: the config
         // keys are written but the backend won't activate until the user
         // signs in (the CLI runs this gate inline; the GUI surfaces it as a
@@ -834,7 +846,11 @@ export function ToolsetConfigPanel({ toolset, onConfiguredChange }: ToolsetConfi
                   </div>
                 )}
                 {provider.requires_nous_auth && (
-                  <p className="text-[0.72rem] text-muted-foreground">{copy.nousIncluded}</p>
+                  <p className="text-[0.72rem] text-muted-foreground">
+                    {/* "Included with a Nous subscription" is not true here and
+                        names a company the customer has no relationship with. */}
+                    {nineGateLocked ? 'Ketersediaan mengikuti paket NineGate Anda.' : copy.nousIncluded}
+                  </p>
                 )}
                 {provider.env_vars.length === 0 ? (
                   <p className="text-[0.72rem] text-muted-foreground">{copy.noApiKeyRequired}</p>
