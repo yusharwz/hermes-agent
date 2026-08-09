@@ -6884,12 +6884,39 @@ async def get_ninegate_status():
     from agent import ninegate_leash as _leash
 
     key = _leash.subscription_key()
-    return {
+    payload = {
         "locked": _leash.is_locked(),
         "gateway": _leash.gateway_url() if _leash.is_locked() else "",
         "key_present": bool(key),
         "key_redacted": redact_key(key) if key else None,
+        "quota": None,
+        "plan": None,
     }
+
+    # Quota comes from the gateway, which is the only thing that knows it — the
+    # allowance is per subscription, not per machine, so a laptop cannot count
+    # it locally. Fetched here rather than from the renderer so the API key
+    # stays out of the browser context.
+    #
+    # A failure is not an error for this endpoint: the page still has to render
+    # the gateway and the key. Quota simply stays null and the UI omits it.
+    if payload["locked"] and key:
+        try:
+            import httpx
+
+            async with httpx.AsyncClient(timeout=8.0) as client:
+                usage = await client.get(
+                    f"{_leash.gateway_url()}/v1/usage",
+                    headers={"Authorization": f"Bearer {key}"},
+                )
+            if usage.status_code == 200:
+                body = usage.json()
+                payload["quota"] = body.get("quota")
+                payload["plan"] = (body.get("plan") or {}).get("name")
+        except Exception:
+            _log.debug("tidak bisa mengambil kuota dari gateway", exc_info=True)
+
+    return payload
 
 
 class NineGateLogin(BaseModel):

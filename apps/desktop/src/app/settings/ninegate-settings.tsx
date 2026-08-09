@@ -3,8 +3,8 @@ import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { triggerHaptic } from '@/lib/haptics'
-import { Check, Globe, KeyRound, Loader2 } from '@/lib/icons'
-import { fetchNineGateStatus, type NineGateStatus } from '@/lib/ninegate'
+import { Activity, Check, Globe, KeyRound, Loader2 } from '@/lib/icons'
+import { fetchNineGateStatus, type NineGateStatus, type QuotaWindow } from '@/lib/ninegate'
 import { notify, notifyError } from '@/store/notifications'
 
 import { ListRow, SectionHeading, SettingsContent, SettingsSkeleton } from './primitives'
@@ -111,6 +111,18 @@ export function NineGateSettings() {
         title="API key"
       />
 
+      {/* Just the remaining allowance and when it comes back. The per-request
+          history lives in the NineGate web portal; what someone opens this
+          page to learn is whether they can keep working and, if not, for how
+          long. */}
+      {status.quota ? (
+        <>
+          <SectionHeading icon={Activity} title="Kuota" />
+          {status.quota.five_hour ? <QuotaRow label="5 jam" window={status.quota.five_hour} /> : null}
+          {status.quota.weekly ? <QuotaRow label="Mingguan" window={status.quota.weekly} /> : null}
+        </>
+      ) : null}
+
       <SectionHeading
         icon={KeyRound}
         title={status.keyPresent ? 'Ganti API key' : 'Masukkan API key'}
@@ -156,5 +168,35 @@ export function NineGateSettings() {
         </>
       ) : null}
     </SettingsContent>
+  )
+}
+
+/**
+ * One allowance window: how much is left, and when it refills.
+ *
+ * The reset is shown as a wall-clock time rather than "in 3 hours", because
+ * someone deciding whether to keep working wants to know if that is before or
+ * after lunch. A relative figure also goes stale on a page left open.
+ */
+function QuotaRow({ label, window: w }: { label: string; window: QuotaWindow }) {
+  const pct = w.limit > 0 ? Math.max(0, Math.min(100, Math.round((w.remaining / w.limit) * 100))) : 0
+  const reset = new Date(w.reset_at)
+  const resetText = Number.isNaN(reset.getTime())
+    ? '—'
+    : reset.toLocaleString('id-ID', { day: 'numeric', hour: '2-digit', minute: '2-digit', month: 'short' })
+
+  return (
+    <ListRow
+      action={
+        <span className="flex items-center gap-2 tabular-nums">
+          <span className={pct <= 10 ? 'text-(--ui-danger)' : undefined}>
+            {w.remaining.toLocaleString('id-ID')} token
+          </span>
+          <span className="text-(--ui-text-tertiary)">({pct}%)</span>
+        </span>
+      }
+      description={`Terisi ulang ${resetText}`}
+      title={label}
+    />
   )
 }

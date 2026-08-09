@@ -99,7 +99,7 @@ export function SettingsView({ onClose, onConfigSaved, onMainModelChanged }: Set
    * it is entitled to.
    */
   useEffect(() => {
-    if (nineGate.resolved && nineGate.locked && activeView === 'providers') {
+    if (nineGate.resolved && nineGate.locked && (activeView === 'providers' || activeView === 'billing')) {
       setActiveView('nineGate')
     }
   }, [nineGate.resolved, nineGate.locked, activeView, setActiveView])
@@ -183,13 +183,23 @@ export function SettingsView({ onClose, onConfigSaved, onMainModelChanged }: Set
         label: t.settings.nav.notifications,
         onSelect: () => setActiveView('notifications')
       },
-      {
-        active: activeView === 'billing',
-        icon: BarChart3,
-        id: 'billing',
-        label: t.settings.nav.billing,
-        onSelect: () => setActiveView('billing')
-      },
+      // The Billing page is the Nous account: plan catalogue, buy credits,
+      // payment method, links to portal.nousresearch.com. A NineGate customer
+      // pays Dritech and has no account there, so every control on it either
+      // does nothing or sends them somewhere that will not recognise them.
+      //
+      // Removed rather than replaced in place — the NineGate usage view is a
+      // different page with different data, and leaving this one reachable
+      // while that is built would keep showing someone else's billing.
+      ...(nineGate.locked
+        ? []
+        : [{
+            active: activeView === 'billing',
+            icon: BarChart3,
+            id: 'billing',
+            label: t.settings.nav.billing,
+            onSelect: () => setActiveView('billing')
+          }]),
       // The one account page a locked build has. Hidden on an unlocked one,
       // where there is no subscription to show and the provider pages below
       // are the real thing.
@@ -369,7 +379,7 @@ export function SettingsView({ onClose, onConfigSaved, onMainModelChanged }: Set
             <KeysSettings view={keysView} />
           ) : activeView === 'notifications' ? (
             <NotificationsSettings />
-          ) : activeView === 'billing' ? (
+          ) : activeView === 'billing' && !nineGate.locked ? (
             <BillingSettings />
           ) : activeView === 'plugins' ? (
             <PluginsSettings />

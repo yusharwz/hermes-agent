@@ -30,6 +30,21 @@ export type NineGateStatus = {
    * exactly like the bug it was supposed to fix.
    */
   resolved: boolean
+  /** Null when the gateway could not be reached — the page omits the section. */
+  quota: NineGateQuota | null
+  plan: string | null
+}
+
+export type QuotaWindow = {
+  limit: number
+  used: number
+  remaining: number
+  reset_at: string
+}
+
+export type NineGateQuota = {
+  five_hour?: QuotaWindow
+  weekly?: QuotaWindow
 }
 
 const UNLOCKED: NineGateStatus = {
@@ -37,6 +52,8 @@ const UNLOCKED: NineGateStatus = {
   keyPresent: false,
   keyRedacted: null,
   locked: false,
+  plan: null,
+  quota: null,
   resolved: false
 }
 
@@ -45,6 +62,8 @@ type StatusPayload = {
   gateway?: string
   key_present?: boolean
   key_redacted?: string | null
+  quota?: NineGateQuota | null
+  plan?: string | null
 }
 
 export async function fetchNineGateStatus(): Promise<NineGateStatus> {
@@ -54,6 +73,8 @@ export async function fetchNineGateStatus(): Promise<NineGateStatus> {
     keyPresent: Boolean(payload.key_present),
     keyRedacted: payload.key_redacted ?? null,
     locked: Boolean(payload.locked),
+    plan: payload.plan ?? null,
+    quota: payload.quota ?? null,
     resolved: true
   }
 }
