@@ -30,6 +30,7 @@ import { $profiles, refreshActiveProfile } from '@/store/profile'
 import { CONTROL_TEXT } from './constants'
 import { EmptyState, ListRow, Pill, SettingsContent, SettingsSkeleton } from './primitives'
 import { enrichSelectedSshHost, selectSshHost } from './ssh-host-selection'
+import { useNineGate } from '@/lib/ninegate'
 
 type Mode = 'local' | 'remote' | 'cloud' | 'ssh'
 type AuthMode = 'oauth' | 'token'
@@ -146,6 +147,7 @@ function ScopeChip({ active, label, onSelect }: { active: boolean; label: string
 // Diagnostics row are redundant there (the card owns its header + a single
 // reconnect action), so only the connection controls render.
 export function GatewaySettings({ embedded = false }: { embedded?: boolean } = {}) {
+  const nineGateLocked = useNineGate().locked
   const { t } = useI18n()
   const g = t.settings.gateway
   const [loading, setLoading] = useState(true)
@@ -1061,14 +1063,19 @@ export function GatewaySettings({ embedded = false }: { embedded?: boolean } = {
             onSelect={() => setState(current => ({ ...current, mode: 'local' }))}
             title={scope === null ? g.localTitle : g.inheritTitle}
           />
-          <ModeCard
-            active={state.mode === 'cloud'}
-            description={g.cloudDesc}
-            disabled={state.envOverride}
-            icon={Cloud}
-            onSelect={() => setState(current => ({ ...current, mode: 'cloud' }))}
-            title={g.cloudTitle}
-          />
+          {/* "Cloud" here means Nous Portal: sign in to their account, pick an
+              organisation, choose one of its agents. A NineGate customer has
+              none of those, so the mode could be selected but never completed. */}
+          {nineGateLocked ? null : (
+            <ModeCard
+              active={state.mode === 'cloud'}
+              description={g.cloudDesc}
+              disabled={state.envOverride}
+              icon={Cloud}
+              onSelect={() => setState(current => ({ ...current, mode: 'cloud' }))}
+              title={g.cloudTitle}
+            />
+          )}
           <ModeCard
             active={state.mode === 'remote'}
             description={g.remoteDesc}
@@ -1093,7 +1100,11 @@ export function GatewaySettings({ embedded = false }: { embedded?: boolean } = {
       {/* Hermes Cloud panel: one portal sign-in, then a discovered-agent picker
           whose selection drives the silent per-agent cascade + a cloud
           connection. Replaces the URL/token form while in cloud mode. */}
-      {state.mode === 'cloud' && !state.envOverride ? (
+      {/* Also guarded on the lock, not just the card above: a machine that
+          used cloud mode before the lock still has `mode: 'cloud'` saved, and
+          would land straight on a Nous sign-in panel with no way to leave it
+          except picking another card. */}
+      {state.mode === 'cloud' && !state.envOverride && !nineGateLocked ? (
         <div className="mt-5 grid gap-1">
           <ListRow
             action={
