@@ -39,6 +39,7 @@ import { ListRow } from '../settings/primitives'
 import type { SetStatusbarItemGroup } from '../shell/statusbar-controls'
 
 import { PlatformAvatar } from './platform-icon'
+import { WhatsAppPairing } from './whatsapp-pairing'
 
 interface MessagingViewProps extends React.ComponentProps<'section'> {
   setStatusbarItemGroup?: SetStatusbarItemGroup
@@ -554,6 +555,10 @@ function PlatformDetail({
   const m = t.messaging
   const [showAdvanced, setShowAdvanced] = useState(false)
 
+  // WhatsApp pairs by scanning, not by pasting a token, so the credential
+  // fields below are not what a customer needs first — the QR is.
+  const isWhatsApp = platform.id === 'whatsapp'
+
   const requiredFields = platform.env_vars.filter(field => field.required)
   const optionalFields = platform.env_vars.filter(field => !field.required && !fieldCopy(field, m).advanced)
   const advancedFields = platform.env_vars.filter(field => !field.required && fieldCopy(field, m).advanced)
@@ -579,6 +584,11 @@ function PlatformDetail({
       </header>
 
       {platform.error_message && <ErrorBanner>{platform.error_message}</ErrorBanner>}
+
+      {/* Placed above the credential fields on purpose: WhatsApp is paired by
+          scanning, and a customer who scrolls past a token form to find that
+          out has already been told the wrong thing about how it works. */}
+      {isWhatsApp && <WhatsAppPairing />}
 
       {/* Pending pairing requests. Rendered only when someone is actually
           waiting — an empty-state card here would be permanent chrome on a
