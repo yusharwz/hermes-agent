@@ -356,6 +356,31 @@ def build_turn_context(
     # Guard stdio against OSError from broken pipes (systemd/headless/daemon).
     install_safe_stdio()
 
+    # ── The model still has to exist ──
+    # A locked build serves models from the customer's subscription plan, and
+    # that plan lives on the server. It can be edited between one turn and the
+    # next: a model is renamed in 9Router, or the customer moves onto a
+    # different tier, and the id this agent was created with stops being
+    # served. Startup already clamps, but a session that was running when the
+    # plan changed would keep asking for the dead model and fail every turn
+    # with "model not found", which reads as a broken application.
+    #
+    # Checked once per turn, and deliberately without blocking: the catalogue
+    # is answered from cache and refreshed in the background, so a turn never
+    # waits on an HTTP call to find out which models exist. The cost is being
+    # at most one cache TTL behind a plan change.
+    try:
+        from agent import ninegate_leash as _leash
+
+        if _leash.is_locked():
+            _clamped = _leash.clamp_model(getattr(agent, "model", ""), blocking=False)
+            if _clamped and _clamped != getattr(agent, "model", ""):
+                agent.model = _clamped
+    except Exception:
+        # Never let plan bookkeeping stop a turn from running. If this cannot
+        # be worked out, the request goes out as it would have anyway.
+        pass
+
     # Recover a session rotated by another path before binding log/turn ids or
     # copying client-supplied history. Everything in this turn must consistently
     # belong to the canonical child, including observability metadata.

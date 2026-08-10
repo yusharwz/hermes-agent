@@ -55,6 +55,7 @@ import {
   Wrench,
   Zap
 } from '@/lib/icons'
+import { useNineGate } from '@/lib/ninegate'
 import { normalize } from '@/lib/text'
 import { cn } from '@/lib/utils'
 import { resolveVersionStatus } from '@/lib/version-status'
@@ -98,14 +99,13 @@ import {
   SKILLS_ROUTE,
   STARMAP_ROUTE
 } from '../routes'
-import { FIELD_LABELS, SECTIONS } from '../settings/constants'
+import { FIELD_LABELS, LOCKED_HIDDEN_SECTIONS, SECTIONS } from '../settings/constants'
 import { fieldCopyForSchemaKey } from '../settings/field-copy'
 import { prettyName } from '../settings/helpers'
 
 import { usePaletteContributions } from './contrib'
 import { MarketplaceThemePage } from './marketplace-theme-page'
 import { PetInlineToggle, PetPalettePage } from './pet-palette-page'
-import { useNineGate } from '@/lib/ninegate'
 
 interface PaletteItem {
   /** Keybind action id — its live combo renders as a hotkey hint. */
@@ -416,7 +416,7 @@ const NON_CONFIG_SETTINGS: ReadonlyArray<{
     tab: 'providers&pview=keys',
     unlockedOnly: true
   },
-  { icon: Globe, keywords: ['connection', 'messaging'], labelKey: 'gateway', tab: 'gateway' },
+  { icon: Globe, keywords: ['connection', 'messaging'], labelKey: 'gateway', tab: 'gateway', unlockedOnly: true },
   {
     icon: KeyRound,
     keywords: ['api', 'secrets', 'tokens', 'credentials', 'browser', 'search'],
@@ -532,6 +532,15 @@ function CommandPaletteBody({ onExited }: { onExited: () => void }) {
   // a page, so an entry that leads to a page which no longer exists is the
   // most annoying kind of dead end.
   const nineGateLocked = useNineGate().locked
+
+  // Both the section entries and the per-field search below navigate to a
+  // config tab, so both have to skip the sections a locked build removed —
+  // otherwise searching "voice" offers a result that redirects away.
+  const visibleSections = useMemo(
+    () => SECTIONS.filter(section => !(nineGateLocked && LOCKED_HIDDEN_SECTIONS.has(section.id))),
+    [nineGateLocked]
+  )
+
   const pendingPage = useStore($commandPalettePage)
   const bindings = useStore($bindings)
   const worktrees = useStore($repoWorktrees)
@@ -902,13 +911,20 @@ function CommandPaletteBody({ onExited }: { onExited: () => void }) {
         // buried under a fuzzy Settings match.
         heading: cc.appearance,
         items: [
-          {
-            icon: Palette,
-            id: 'appearance-theme',
-            keywords: ['theme', 'appearance', 'color', 'palette', 'skin', 'dark', 'light', 'look'],
-            label: cc.changeTheme,
-            to: 'theme'
-          },
+          // One skin on a locked build, so "Change theme" would open a picker
+          // with a single option and an Install-from-Marketplace button that
+          // puts palettes back. Colour mode below is the choice that remains.
+          ...(nineGateLocked
+            ? []
+            : [
+                {
+                  icon: Palette,
+                  id: 'appearance-theme',
+                  keywords: ['theme', 'appearance', 'color', 'palette', 'skin', 'dark', 'light', 'look'],
+                  label: cc.changeTheme,
+                  to: 'theme'
+                }
+              ]),
           {
             icon: Sun,
             id: 'appearance-mode',
@@ -935,7 +951,7 @@ function CommandPaletteBody({ onExited }: { onExited: () => void }) {
       {
         heading: cc.settings,
         items: [
-          ...SECTIONS.map(section => ({
+          ...visibleSections.map(section => ({
             icon: section.icon,
             id: `set-config-${section.id}`,
             keywords: ['settings', section.label, settingsSectionLabel(section)],
@@ -960,11 +976,13 @@ function CommandPaletteBody({ onExited }: { onExited: () => void }) {
     contributedItems,
     dismissedAutoProjects,
     go,
+    nineGateLocked,
     projectTree,
     selectTick,
     settingsSectionLabel,
     t,
-    updateVersionLabel
+    updateVersionLabel,
+    visibleSections
   ])
 
   // The long, granular lists (settings fields, API keys, MCP servers, archived
@@ -1049,7 +1067,7 @@ function CommandPaletteBody({ onExited }: { onExited: () => void }) {
     // can't render the current light/dark mode, flip to the one it supports.
     result.push({
       heading: t.settings.appearance.themeTitle,
-      items: availableThemes.map(theme => ({
+      items: (nineGateLocked ? [] : availableThemes).map(theme => ({
         active: themeName === theme.name,
         icon: Palette,
         id: `search-theme-${theme.name}`,
@@ -1099,7 +1117,7 @@ function CommandPaletteBody({ onExited }: { onExited: () => void }) {
       })
     }
 
-    const fieldItems = SECTIONS.flatMap(section =>
+    const fieldItems = visibleSections.flatMap(section =>
       section.keys.map(key => ({
         icon: section.icon,
         id: `field-${key}`,
@@ -1152,6 +1170,7 @@ function CommandPaletteBody({ onExited }: { onExited: () => void }) {
     goSession,
     mcpServers,
     mode,
+    nineGateLocked,
     resolvedMode,
     search,
     sessions,
@@ -1159,7 +1178,8 @@ function CommandPaletteBody({ onExited }: { onExited: () => void }) {
     setTheme,
     settingsSectionLabel,
     t,
-    themeName
+    themeName,
+    visibleSections
   ])
 
   // Branch rows rank below BOTH the fixed groups and the typed-only lists: they

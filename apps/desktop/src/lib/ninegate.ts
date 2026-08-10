@@ -66,8 +66,45 @@ type StatusPayload = {
   plan?: string | null
 }
 
+/**
+ * Last answer from the backend, readable synchronously.
+ *
+ * Hooks are not available everywhere the lock matters. Backend skin ingestion
+ * and the model resolver both run outside React, on events rather than on a
+ * render, and both have to know whether this is a locked build. This is that
+ * answer, refreshed by every fetch below.
+ *
+ * Null means "not asked yet", which callers must treat as unlocked for the
+ * same reason `resolved` exists: guessing "locked" before the answer arrives
+ * would break an unlocked developer build for the first few hundred
+ * milliseconds of every boot.
+ */
+let cachedLocked: boolean | null = null
+
+/** Whether this is a locked NineGate build, for code that cannot use a hook. */
+export function isNineGateLocked(): boolean {
+  return cachedLocked === true
+}
+
+/**
+ * Asks the backend as soon as this module loads, rather than waiting for the
+ * first component to mount.
+ *
+ * The non-React callers are driven by gateway events, and a gateway event can
+ * arrive before any settings screen has ever been opened. Priming here settles
+ * the answer during module evaluation — long before the websocket connects,
+ * since connecting needs the same desktop bridge this call does.
+ */
+if (typeof window !== 'undefined') {
+  void fetchNineGateStatus().catch(() => {
+    cachedLocked = false
+  })
+}
+
 export async function fetchNineGateStatus(): Promise<NineGateStatus> {
   const payload = await window.hermesDesktop.api<StatusPayload>({ path: '/api/ninegate' })
+  cachedLocked = Boolean(payload.locked)
+
   return {
     gateway: payload.gateway ?? '',
     keyPresent: Boolean(payload.key_present),
@@ -97,12 +134,15 @@ export function useNineGate(): NineGateStatus {
     void (async () => {
       try {
         const next = await fetchNineGateStatus()
-        if (!cancelled) setStatus(next)
+
+        if (!cancelled) {setStatus(next)}
       } catch {
         // An older backend has no /api/ninegate. That build predates the lock,
         // so unlocked is the correct answer rather than an error to surface —
         // but it IS an answer, so callers stop waiting.
-        if (!cancelled) setStatus({ ...UNLOCKED, resolved: true })
+        cachedLocked = false
+
+        if (!cancelled) {setStatus({ ...UNLOCKED, resolved: true })}
       }
     })()
 

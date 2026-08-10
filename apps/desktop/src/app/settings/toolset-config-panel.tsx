@@ -19,6 +19,7 @@ import {
 } from '@/hermes'
 import { useI18n } from '@/i18n'
 import { Check, Loader2, Save, Terminal } from '@/lib/icons'
+import { useNineGate } from '@/lib/ninegate'
 import { cn } from '@/lib/utils'
 import { upsertDesktopActionTask } from '@/store/activity'
 import { notify, notifyError } from '@/store/notifications'
@@ -34,7 +35,6 @@ import type {
 import { EnvVarActionsMenu, EnvVarActionsTrigger, EnvVarContextMenu } from './env-var-actions-menu'
 import { Pill } from './primitives'
 import { VoiceProviderFields } from './voice-provider-fields'
-import { useNineGate } from '@/lib/ninegate'
 
 interface ToolsetConfigPanelProps {
   toolset: string

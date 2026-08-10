@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import importlib
 import os
+import threading
+import time
 
 import pytest
 
@@ -261,3 +263,198 @@ def test_the_refusal_names_the_gateway_and_the_way_out(locked):
     message = locked.refusal("https://api.openai.com/v1")
     assert GATEWAY in message
     assert "atlas login" in message
+
+
+# ---------------------------------------------------------------------------
+# Which model the plan actually serves
+# ---------------------------------------------------------------------------
+#
+# The failure these prevent is not hypothetical: a plan was edited in 9Router,
+# the model written into config.yaml at install time was no longer on it, and
+# every prompt came back "model not found". The customer sees a broken app.
+
+
+@pytest.fixture
+def catalog_reset():
+    """Clears the module-level catalogue cache around each test."""
+    leash._catalog = None
+    leash._catalog_fetched_at = 0.0
+    yield
+    leash._catalog = None
+    leash._catalog_fetched_at = 0.0
+
+
+PLAN = [
+    {"id": "NineGate-Low", "owned_by": "combo"},
+    {"id": "ag/gemini-3.1-pro-low", "owned_by": "ag"},
+    {"id": "ag/gemini-3-flash", "owned_by": "ag"},
+]
+
+
+def _serve(monkeypatch, models):
+    """Makes the gateway answer with this catalogue, counting the fetches."""
+    calls = []
+
+    def fake_fetch():
+        calls.append(1)
+        return models
+
+    monkeypatch.setattr(leash, "_fetch_catalog", fake_fetch)
+    return calls
+
+
+def test_the_combo_is_what_auto_means(locked, catalog_reset, monkeypatch):
+    _serve(monkeypatch, PLAN)
+    assert leash.auto_model() == "NineGate-Low"
+
+
+def test_a_combo_is_recognised_without_the_owned_by_field(locked, catalog_reset, monkeypatch):
+    # Older gateway builds do not set owned_by, so the shape rule has to stand
+    # on its own: a bare name is a combo, a prefixed one is a single model.
+    _serve(monkeypatch, [{"id": "ag/gemini-3-flash"}, {"id": "mix-low"}])
+    assert leash.auto_model() == "mix-low"
+
+
+def test_a_model_still_on_the_plan_is_left_alone(locked, catalog_reset, monkeypatch):
+    # The important half. This must never become a mechanism that quietly
+    # overrides a choice the customer made.
+    _serve(monkeypatch, PLAN)
+    assert leash.clamp_model("ag/gemini-3-flash") == "ag/gemini-3-flash"
+
+
+def test_a_model_dropped_from_the_plan_becomes_auto(locked, catalog_reset, monkeypatch):
+    _serve(monkeypatch, PLAN)
+    assert leash.clamp_model("ag/model-withdrawn-last-week") == "NineGate-Low"
+
+
+def test_no_model_at_all_becomes_auto(locked, catalog_reset, monkeypatch):
+    _serve(monkeypatch, PLAN)
+    assert leash.clamp_model("") == "NineGate-Low"
+
+
+def test_an_unreachable_gateway_keeps_the_current_model(locked, catalog_reset, monkeypatch):
+    # Offline is not evidence that a model was withdrawn. Substituting here
+    # would change which model someone's work runs on because their wifi
+    # dropped.
+    monkeypatch.setattr(leash, "_fetch_catalog", lambda: None)
+    assert leash.clamp_model("ag/gemini-3-flash") == "ag/gemini-3-flash"
+
+
+def test_a_plan_with_no_combo_leaves_the_model_alone(locked, catalog_reset, monkeypatch):
+    # Nothing safe to fall back to, so the request goes out as asked and the
+    # gateway's own error is what the customer sees — which is honest.
+    _serve(monkeypatch, [{"id": "ag/gemini-3-flash", "owned_by": "ag"}])
+    assert leash.clamp_model("ag/gone") == "ag/gone"
+
+
+def test_an_unlocked_build_never_rewrites_a_model(unlocked, catalog_reset, monkeypatch):
+    calls = _serve(monkeypatch, PLAN)
+    assert leash.clamp_model("my-provider/my-model") == "my-provider/my-model"
+    assert leash.catalog() == []
+    # Not merely the right answer — an unlocked build must not be calling a
+    # gateway it has nothing to do with.
+    assert calls == []
+
+
+def test_the_catalogue_is_cached_between_calls(locked, catalog_reset, monkeypatch):
+    calls = _serve(monkeypatch, PLAN)
+    leash.clamp_model("ag/gemini-3-flash")
+    leash.clamp_model("ag/gemini-3-flash")
+    leash.clamp_model("ag/gemini-3-flash")
+    assert len(calls) == 1, "consulted on the request path — one fetch per TTL, not per prompt"
+
+
+def test_invalidating_forces_a_refetch(locked, catalog_reset, monkeypatch):
+    calls = _serve(monkeypatch, PLAN)
+    leash.clamp_model("ag/gemini-3-flash")
+    leash.invalidate_catalog()
+    leash.clamp_model("ag/gemini-3-flash")
+    assert len(calls) == 2
+
+
+def test_a_failed_refresh_keeps_the_last_known_plan(locked, catalog_reset, monkeypatch):
+    _serve(monkeypatch, PLAN)
+    leash.clamp_model("ag/gemini-3-flash")
+
+    # The gateway goes away. The previously fetched list must survive, or every
+    # model looks withdrawn and everyone is pushed onto the fallback at once.
+    monkeypatch.setattr(leash, "_fetch_catalog", lambda: None)
+    leash.invalidate_catalog()
+    assert leash.clamp_model("ag/gemini-3-flash") == "ag/gemini-3-flash"
+
+
+def test_a_plan_change_is_picked_up_without_a_restart(locked, catalog_reset, monkeypatch):
+    # The whole point of item 9: the plan moves on the server and the running
+    # app follows it.
+    _serve(monkeypatch, PLAN)
+    assert leash.clamp_model("ag/gemini-3-flash") == "ag/gemini-3-flash"
+
+    _serve(monkeypatch, [{"id": "NineGate-High", "owned_by": "combo"}, {"id": "cc/claude-opus-5"}])
+    leash.invalidate_catalog()
+    assert leash.clamp_model("ag/gemini-3-flash") == "NineGate-High"
+
+
+# ---------------------------------------------------------------------------
+# The request path must not wait on the network
+# ---------------------------------------------------------------------------
+#
+# clamp_model runs once per turn so a session that was already open when the
+# plan changed moves onto the combo instead of failing every turn. That put it
+# on the hot path, where a blocking HTTP call would add a round trip to a
+# user's message for a list that changes a few times a year.
+
+
+def test_the_turn_path_answers_from_cache_without_blocking(locked, catalog_reset, monkeypatch):
+    started = threading.Event()
+    release = threading.Event()
+
+    def slow_fetch():
+        started.set()
+        release.wait(5)
+        return PLAN
+
+    monkeypatch.setattr(leash, "_fetch_catalog", slow_fetch)
+
+    # Nothing cached yet: the answer is "no opinion", immediately, and the
+    # model is left exactly as it was.
+    before = time.monotonic()
+    assert leash.clamp_model("ag/gemini-3-flash", blocking=False) == "ag/gemini-3-flash"
+    assert time.monotonic() - before < 1.0, "the request path blocked on a fetch"
+
+    assert started.wait(3), "no background refresh was started"
+    release.set()
+
+    # Once the background fetch lands, the next turn gets the real answer.
+    for _ in range(50):
+        if leash.catalog(blocking=False):
+            break
+        time.sleep(0.05)
+
+    assert leash.clamp_model("ag/model-withdrawn", blocking=False) == "NineGate-Low"
+
+
+def test_a_single_refresh_runs_even_under_repeated_turns(locked, catalog_reset, monkeypatch):
+    calls = []
+    release = threading.Event()
+
+    def slow_fetch():
+        calls.append(1)
+        release.wait(5)
+        return PLAN
+
+    monkeypatch.setattr(leash, "_fetch_catalog", slow_fetch)
+
+    # Ten turns in quick succession must not start ten fetches.
+    for _ in range(10):
+        leash.clamp_model("ag/gemini-3-flash", blocking=False)
+
+    release.set()
+    time.sleep(0.2)
+    assert len(calls) == 1, f"started {len(calls)} concurrent refreshes"
+
+
+def test_blocking_callers_still_wait(locked, catalog_reset, monkeypatch):
+    # Startup clamps with blocking=True, where correctness matters more than
+    # latency: an agent created against a dead model fails on its first turn.
+    _serve(monkeypatch, PLAN)
+    assert leash.clamp_model("ag/model-withdrawn") == "NineGate-Low"

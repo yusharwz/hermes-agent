@@ -1,14 +1,23 @@
 import { useCallback } from 'react'
 
-import { useTheme } from './context'
+import { isNineGateLocked } from '@/lib/ninegate'
 
-// Retired skin names land on the canonical Nous skin so old muscle memory works.
+import { useTheme } from './context'
+import { DEFAULT_SKIN_NAME } from './presets'
+
+// Retired skin names land on the shipping skin so old muscle memory still
+// resolves to something rather than reporting an unknown theme.
 const ALIASES: Record<string, string> = {
-  ares: 'ember',
-  default: 'nous',
-  gold: 'nous',
-  hermes: 'nous',
-  'nous-light': 'nous'
+  ares: DEFAULT_SKIN_NAME,
+  cyberpunk: DEFAULT_SKIN_NAME,
+  default: DEFAULT_SKIN_NAME,
+  ember: DEFAULT_SKIN_NAME,
+  gold: DEFAULT_SKIN_NAME,
+  hermes: DEFAULT_SKIN_NAME,
+  midnight: DEFAULT_SKIN_NAME,
+  nous: DEFAULT_SKIN_NAME,
+  'nous-light': DEFAULT_SKIN_NAME,
+  slate: DEFAULT_SKIN_NAME
 }
 
 export function useSkinCommand() {
@@ -17,6 +26,14 @@ export function useSkinCommand() {
   return useCallback(
     (rawArg: string) => {
       const arg = rawArg.trim()
+
+      // Atlas ships one skin, so there is nothing to cycle or list. Answering
+      // plainly beats a command that reports switching to the theme already in
+      // use, and it keeps `/skin` from being a back door into palettes the
+      // settings page no longer offers.
+      if (isNineGateLocked()) {
+        return 'Atlas ships a single theme. Use Settings → Appearance to switch between light and dark.'
+      }
 
       if (!availableThemes.length) {
         return 'No desktop themes are available.'

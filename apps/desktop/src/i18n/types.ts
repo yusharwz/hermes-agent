@@ -364,6 +364,8 @@ export interface Translations {
       productDesc: string
       technical: string
       technicalDesc: string
+      modeTitle: string
+      modeDesc: string
       themeTitle: string
       themeDesc: string
       themeProfileNote: (profile: string) => string

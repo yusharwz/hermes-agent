@@ -77,6 +77,7 @@ export function mirrorSelection(host: HTMLElement, text: string) {
   }
 
   const live = window.getSelection()
+
   const foreign =
     live && !live.isCollapsed && live.anchorNode != null && !host.contains(live.anchorNode)
 

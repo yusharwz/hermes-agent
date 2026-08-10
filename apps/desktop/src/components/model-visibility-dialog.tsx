@@ -12,8 +12,9 @@ import { Switch } from '@/components/ui/switch'
 import type { HermesGateway } from '@/hermes'
 import { useI18n } from '@/i18n'
 import { Search } from '@/lib/icons'
-import { modelOptionsQueryKey, requestModelOptions } from '@/lib/model-options'
+import { modelOptionsFreshness, modelOptionsQueryKey, requestModelOptions } from '@/lib/model-options'
 import { displayModelName, modelDisplayParts } from '@/lib/model-status-label'
+import { useNineGate } from '@/lib/ninegate'
 import { normalize } from '@/lib/text'
 import {
   $visibleModels,
@@ -26,7 +27,6 @@ import {
 } from '@/store/model-visibility'
 import { $collapsedProviders, toggleCollapsedProvider } from '@/store/provider-collapse'
 import type { ModelOptionProvider, ModelOptionsResponse } from '@/types/hermes'
-import { useNineGate } from '@/lib/ninegate'
 
 interface ModelVisibilityDialogProps {
   gw?: HermesGateway
@@ -55,6 +55,7 @@ export function ModelVisibilityDialog({
   const modelOptions = useQuery({
     queryKey: modelOptionsQueryKey(profile, sessionId),
     queryFn: (): Promise<ModelOptionsResponse> => requestModelOptions({ gateway: gw, sessionId }),
+    ...modelOptionsFreshness(),
     enabled: open
   })
 

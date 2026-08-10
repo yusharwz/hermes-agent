@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 
 import { closeActiveTab } from '@/app/chat/close-tab'
 import { openSession } from '@/app/open-session'
+import { fetchNineGateStatus } from '@/lib/ninegate'
 import { storedSessionIdForNotification } from '@/lib/session-ids'
 import { respondToApprovalAction } from '@/store/native-notifications'
 import { $activeGatewayProfile } from '@/store/profile'
@@ -20,7 +21,6 @@ import { isSecondaryWindow } from '@/store/windows'
 
 import { requestComposerFocus, requestComposerInsert } from '../../chat/composer/focus'
 import { appViewForPath, isOverlayView, NEW_CHAT_ROUTE, sessionRoute } from '../../routes'
-import { fetchNineGateStatus } from '@/lib/ninegate'
 
 interface DesktopIntegrationsParams {
   chatOpen: boolean
@@ -53,6 +53,7 @@ export function useDesktopIntegrations({
   // process's "open updates" menu request.
   useEffect(() => {
     startUpdatePoller()
+
     // The native menu's "check for updates" does not go through any React
     // surface, so gating the UI never reached it. On a locked build the window
     // it opens describes an upstream update that must not be applied, so the
@@ -60,7 +61,7 @@ export function useDesktopIntegrations({
     const unsubscribe = window.hermesDesktop?.onOpenUpdatesRequested?.(() => {
       void fetchNineGateStatus()
         .then(status => {
-          if (!status.locked) openUpdatesWindow()
+          if (!status.locked) {openUpdatesWindow()}
         })
         .catch(() => openUpdatesWindow())
     })

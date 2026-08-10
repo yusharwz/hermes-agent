@@ -2,9 +2,10 @@ import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 
 import { useI18n } from '@/i18n'
-import { modelOptionsQueryKey, requestModelOptions } from '@/lib/model-options'
+import { modelOptionsFreshness, modelOptionsQueryKey, requestModelOptions } from '@/lib/model-options'
 import { modelSearchText } from '@/lib/model-search-text'
 import { currentPickerSelection } from '@/lib/model-status-label'
+import { useNineGate } from '@/lib/ninegate'
 import { normalize } from '@/lib/text'
 import type { ModelOptionProvider, ModelPricing } from '@/types/hermes'
 
@@ -18,7 +19,6 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog'
 import { HighlightMatches } from './ui/highlight-matches'
 import { Skeleton } from './ui/skeleton'
-import { useNineGate } from '@/lib/ninegate'
 
 interface ModelPickerDialogProps {
   open: boolean
@@ -61,6 +61,7 @@ export function ModelPickerDialog({
   const modelOptions = useQuery({
     queryKey: modelOptionsQueryKey(profile, sessionId),
     queryFn: () => requestModelOptions({ gateway: gw, sessionId }),
+    ...modelOptionsFreshness(),
     enabled: open
   })
 

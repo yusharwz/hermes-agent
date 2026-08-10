@@ -448,6 +448,8 @@ export const zh: Translations = {
       productDesc: '易读的工具活动与简洁摘要。',
       technical: '技术',
       technicalDesc: '包含原始工具参数/结果及底层细节。',
+      modeTitle: '外观',
+      modeDesc: '浅色或深色。Atlas 在两者中都使用同一套灰度配色。',
       themeTitle: '主题',
       themeDesc: '仅桌面端调色板。所选模式叠加其上。',
       themeProfileNote: profile => `已为「${profile}」配置文件保存——每个配置文件保留各自的主题。`,

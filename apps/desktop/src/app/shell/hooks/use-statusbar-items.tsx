@@ -11,6 +11,7 @@ import { GlyphSpinner } from '@/components/ui/glyph-spinner'
 import { useI18n } from '@/i18n'
 import { displayPath, pathLeaf } from '@/lib/display-path'
 import { Activity, AlertCircle, Clock, Command, FolderOpen, Globe, Hash, Loader2, Terminal } from '@/lib/icons'
+import { useNineGate } from '@/lib/ninegate'
 import type { RuntimeReadinessResult } from '@/lib/runtime-readiness'
 import { contextBarLabel, LiveDuration, usageContextLabel } from '@/lib/statusbar'
 import { useStoreSelector } from '@/lib/use-session-slice'
@@ -49,7 +50,6 @@ import type { StatusResponse, UsageStats } from '@/types/hermes'
 
 import { CRON_ROUTE, SETTINGS_ROUTE, WEBHOOKS_ROUTE } from '../../routes'
 import type { StatusbarItem } from '../statusbar-controls'
-import { useNineGate } from '@/lib/ninegate'
 
 const EMPTY_USAGE = { calls: 0, input: 0, output: 0, total: 0 } as const
 
@@ -141,6 +141,7 @@ export function useStatusbarItems({
   // bail-out key on its own.
   const focusedUsage = useStoreSelector($focusedSessionState, state => state?.usage ?? null)
   const focusedStateCwd = useStoreSelector($focusedSessionState, state => state?.cwd?.trim() || '')
+
   // Runtime slices carry the stored id they were bound for. During a primary
   // tab switch the runtime id can lag a frame behind the new selection — the
   // slice still describes the PREVIOUS chat. Gate live cwd on ownership so we
@@ -149,6 +150,7 @@ export function useStatusbarItems({
     $focusedSessionState,
     state => state?.storedSessionId?.trim() || null
   )
+
   const selectedStoredSessionId = useStore($selectedStoredSessionId)
   const primaryFocused = !focusedStoredSessionId || focusedStoredSessionId === selectedStoredSessionId
 
@@ -170,6 +172,7 @@ export function useStatusbarItems({
       ? (sessions.find(s => sessionMatchesStoredId(s, focusedStoredSessionId))?.started_at ?? null)
       : null
   )
+
   const focusedRowCwd = useStoreSelector($sessions, sessions => {
     if (!focusedStoredSessionId) {
       return ''
@@ -197,12 +200,14 @@ export function useStatusbarItems({
 
     return idsShareLineage(focusedStoredSessionId, focusedStateStoredId, sessions)
   })
+
   const liveCwdBelongsToFocus =
     Boolean(focusedStateCwd) &&
     (!focusedStoredSessionId ||
       !focusedStateStoredId ||
       focusedStateStoredId === focusedStoredSessionId ||
       liveCwdSharesFocusLineage)
+
   const currentCwd = (
     (liveCwdBelongsToFocus ? focusedStateCwd : '') ||
     focusedRowCwd ||
@@ -375,9 +380,11 @@ export function useStatusbarItems({
           ? copy.connectionCloud(connection.remoteHost)
           : copy.connectionRemote(connection.remoteHost),
       // Label already names the host — no "click to manage" tip lecture.
-      to: `${SETTINGS_ROUTE}?tab=gateway`
+      // A locked build has no gateway page to link to, so the badge stays as
+      // an indicator rather than a link that lands nowhere.
+      to: nineGateLocked ? undefined : `${SETTINGS_ROUTE}?tab=gateway`
     }
-  }, [connection?.mode, connection?.remoteHost, connection?.remoteKind, copy])
+  }, [connection?.mode, connection?.remoteHost, connection?.remoteKind, copy, nineGateLocked])
 
   const coreLeftStatusbarItems = useMemo<readonly StatusbarItem[]>(
     () => [

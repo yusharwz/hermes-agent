@@ -412,6 +412,8 @@ export const ar = defineLocale({
       productDesc: 'عرض أنظف يركز على النتيجة.',
       technical: 'تقني',
       technicalDesc: 'يعرض تفاصيل أكثر عن الأدوات والتنفيذ.',
+      modeTitle: 'المظهر',
+      modeDesc: 'فاتح أو داكن. يستخدم Atlas لوحة رمادية واحدة في كليهما.',
       themeTitle: 'الثيم',
       themeDesc: 'اختر ثيم سطح المكتب.',
       themeProfileNote: profile => `سيطبق هذا الثيم على الملف الشخصي ${profile}.`,

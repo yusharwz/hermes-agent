@@ -48,8 +48,13 @@ there covers the ones this module has never heard of.
 
 from __future__ import annotations
 
+import json
 import os
 import re
+import threading
+import time
+import urllib.error
+import urllib.request
 from typing import Optional, Tuple
 
 # ---------------------------------------------------------------------------
@@ -227,6 +232,192 @@ def engage() -> None:
     os.environ[_OPENAI_URL] = f"{root}/v1"
     os.environ[_ANTHROPIC_KEY] = key
     os.environ[_ANTHROPIC_URL] = root
+
+
+
+# ---------------------------------------------------------------------------
+# Which models the subscription actually has
+# ---------------------------------------------------------------------------
+#
+# WHY THIS IS NOT A CONFIG VALUE
+# ==============================
+# The installer used to write the plan's first model into ``config.yaml`` and
+# leave it there. That is a snapshot of a list that lives on the server: change
+# the customer's plan, or rename a model in 9Router, and the next prompt asks
+# for a model the gateway no longer serves. It fails as "model not found",
+# which reads like a broken application rather than a plan that moved.
+#
+# So the catalogue is read from the gateway, not from a file, and the model in
+# use is checked against it. A pinned model that is still on the plan is left
+# exactly alone — this is not a mechanism for overriding the customer's choice.
+# One that has vanished is replaced with the plan's combo.
+#
+# WHY THE COMBO IS THE FALLBACK
+# =============================
+# A combo is a pool 9Router picks between, so it survives any single model
+# being renamed or withdrawn — which makes it the one entry that is still valid
+# after the kind of change that breaks a pinned id. Every plan has one.
+
+_MODELS_PATH = "/v1/models"
+
+# How long a fetched catalogue is trusted.
+#
+# Short, because a plan change has to take effect without the customer
+# restarting anything. Not zero, because this is consulted on the request path
+# and a fetch per prompt would add a round trip to every message for a list
+# that changes a few times a year.
+_CATALOG_TTL_SECONDS = 60.0
+
+# Long enough to cross a slow link, short enough that a gateway which has gone
+# away does not hold up a prompt. On timeout the cached list is reused and, if
+# there is none, model selection is left untouched.
+_CATALOG_TIMEOUT_SECONDS = 8.0
+
+_catalog_lock = threading.Lock()
+_catalog: Optional[list] = None
+_catalog_fetched_at = 0.0
+
+
+def _fetch_catalog() -> Optional[list]:
+    """The raw ``data`` array from the gateway, or None if it could not be read."""
+    key = subscription_key()
+    if not key:
+        return None
+
+    request = urllib.request.Request(
+        f"{gateway_url()}{_MODELS_PATH}",
+        headers={"Authorization": f"Bearer {key}", "Accept": "application/json"},
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=_CATALOG_TIMEOUT_SECONDS) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (urllib.error.URLError, TimeoutError, ValueError, OSError):
+        # Offline, gateway down, or a body that is not JSON. None means "no
+        # opinion" — callers keep whatever model they already had, which is the
+        # only safe answer when we cannot see the catalogue.
+        return None
+
+    data = payload.get("data")
+    return data if isinstance(data, list) else None
+
+
+_refreshing = False
+
+
+def _refresh_catalog() -> None:
+    """Fetches and stores the catalogue. Safe to call from any thread."""
+    global _catalog, _catalog_fetched_at, _refreshing
+
+    fetched = _fetch_catalog()
+
+    with _catalog_lock:
+        if fetched is not None:
+            _catalog = fetched
+            _catalog_fetched_at = time.monotonic()
+        # A failed fetch deliberately does not clear the previous answer: a
+        # momentary network blip should not look like "the plan has no models",
+        # which would push everyone onto the fallback for no reason.
+        _refreshing = False
+
+
+def catalog(*, refresh: bool = False, blocking: bool = True) -> list:
+    """Models this subscription may use. Empty when the gateway is unreachable.
+
+    ``blocking=False`` answers from whatever is cached and refreshes in the
+    background instead of waiting. That is for the request path: a turn should
+    not stall behind an HTTP call to find out which models exist, and being one
+    TTL behind on a plan change costs a minute, where blocking costs every user
+    a round trip on the first turn after each TTL expiry.
+    """
+    global _refreshing
+
+    if not is_locked():
+        return []
+
+    with _catalog_lock:
+        stale = _catalog is None or (time.monotonic() - _catalog_fetched_at) >= _CATALOG_TTL_SECONDS
+        if not (stale or refresh):
+            return list(_catalog or [])
+
+        if not blocking:
+            snapshot = list(_catalog or [])
+            already = _refreshing
+            _refreshing = True
+
+    if not blocking:
+        if not already:
+            # Daemon so a hung fetch can never keep the process alive at exit.
+            threading.Thread(target=_refresh_catalog, name="ninegate-catalog", daemon=True).start()
+        return snapshot
+
+    _refresh_catalog()
+
+    with _catalog_lock:
+        return list(_catalog or [])
+
+
+def invalidate_catalog() -> None:
+    """Forces the next read to go to the gateway. Call after a plan may have changed."""
+    global _catalog_fetched_at
+    with _catalog_lock:
+        _catalog_fetched_at = 0.0
+
+
+def is_combo(model_id: str) -> bool:
+    """True for a 9Router combo — a pool of models rather than one model.
+
+    A combo carries no provider prefix ("NineGate-Low" against
+    "ag/gemini-3-flash"). The gateway also reports ``owned_by: "combo"``, which
+    is checked first where the entry is available, because the shape rule is a
+    convention and the field is a statement.
+    """
+    return "/" not in (model_id or "").strip()
+
+
+def auto_model(models: Optional[list] = None) -> str:
+    """The plan's combo — what "Auto" means. Empty when the plan has none."""
+    entries = models if models is not None else catalog()
+
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        if str(entry.get("owned_by") or "").strip().lower() == "combo":
+            return str(entry.get("id") or "")
+
+    # No explicit marker: fall back to the shape. Older gateway builds did not
+    # set owned_by on combos.
+    for entry in entries:
+        if isinstance(entry, dict) and is_combo(str(entry.get("id") or "")):
+            return str(entry.get("id") or "")
+
+    return ""
+
+
+def clamp_model(model: Optional[str], *, blocking: bool = True) -> str:
+    """Keeps a model that is still on the plan; swaps a vanished one for Auto.
+
+    Returns the input unchanged on an unlocked build, when the catalogue cannot
+    be read, or when the plan has no combo to fall back to — every one of those
+    is a case where substituting would be a guess, and a guess here changes
+    which model a customer's work runs on.
+    """
+    current = (model or "").strip()
+
+    if not is_locked():
+        return current
+
+    entries = catalog(blocking=blocking)
+    if not entries:
+        return current
+
+    available = {str(entry.get("id") or "") for entry in entries if isinstance(entry, dict)}
+
+    if current and current in available:
+        return current
+
+    fallback = auto_model(entries)
+    return fallback or current
 
 
 def clamp(base_url: Optional[str], api_key: Optional[str], *, anthropic: bool = False) -> Tuple[str, str]:

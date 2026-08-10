@@ -22,6 +22,7 @@ import {
   Wrench,
   Zap
 } from '@/lib/icons'
+import { useNineGate } from '@/lib/ninegate'
 import { notifyError } from '@/store/notifications'
 
 import { useRouteEnumParam } from '../hooks/use-route-enum-param'
@@ -34,12 +35,11 @@ import { AboutSettings } from './about-settings'
 import { AppearanceSettings } from './appearance-settings'
 import { BillingSettings } from './billing'
 import { ConfigSettings } from './config-settings'
-import { SECTIONS } from './constants'
+import { LOCKED_HIDDEN_SECTIONS, SECTIONS } from './constants'
 import { GatewaySettings } from './gateway-settings'
 import { KeybindSettings } from './keybind-settings'
-import { useNineGate } from '@/lib/ninegate'
-import { NineGateSettings } from './ninegate-settings'
 import { KEYS_VIEWS, KeysSettings, type KeysView } from './keys-settings'
+import { NineGateSettings } from './ninegate-settings'
 import { NotificationsSettings } from './notifications-settings'
 import { PluginsSettings } from './plugins-settings'
 import { PROVIDER_VIEWS, ProvidersSettings, type ProviderView } from './providers-settings'
@@ -99,7 +99,14 @@ export function SettingsView({ onClose, onConfigSaved, onMainModelChanged }: Set
    * it is entitled to.
    */
   useEffect(() => {
-    if (nineGate.resolved && nineGate.locked && (activeView === 'providers' || activeView === 'billing')) {
+    if (!nineGate.resolved || !nineGate.locked) {return}
+
+    // Every view removed above. A tab that no longer exists must redirect, not
+    // fall through the render chain — that is how ?tab=providers ended up
+    // showing Archived Chats.
+    const removed = new Set(['providers', 'billing', 'gateway', 'keys', 'config:model', 'config:voice'])
+
+    if (removed.has(activeView)) {
       setActiveView('nineGate')
     }
   }, [nineGate.resolved, nineGate.locked, activeView, setActiveView])
@@ -165,7 +172,19 @@ export function SettingsView({ onClose, onConfigSaved, onMainModelChanged }: Set
 
   const navGroups: OverlayNavGroup[] = useMemo(
     () => [
-      ...SECTIONS.map(s => {
+      /**
+       * Sections a locked build does not own.
+       *
+       * model   — the model is chosen in the composer; everything that was on
+       *           this page (provider, fallback chain) belonged to the
+       *           multi-provider world.
+       * voice   — every TTS/STT backend here wants the customer's own vendor
+       *           key, which is not how a NineGate subscription works.
+       *
+       * Filtered here rather than deleted from SECTIONS so an unlocked
+       * developer build keeps them.
+       */
+      ...SECTIONS.filter(s => !(nineGate.locked && LOCKED_HIDDEN_SECTIONS.has(s.id))).map(s => {
         const view = `config:${s.id}` as SettingsViewId
 
         return {
@@ -250,13 +269,16 @@ export function SettingsView({ onClose, onConfigSaved, onMainModelChanged }: Set
         label: t.settings.nav.providers,
         onSelect: () => setActiveView('providers')
       }]),
-      {
-        active: activeView === 'gateway',
-        icon: Globe,
-        id: 'gateway',
-        label: t.settings.nav.gateway,
-        onSelect: () => setActiveView('gateway')
-      },
+      // Gateway picks which Atlas backend to talk to — local, remote or ssh.
+      // The installer decides that, and a customer who changes it points their
+      // app at a backend that is not theirs.
+      ...(nineGate.locked ? [] : [      {
+          active: activeView === 'gateway',
+          icon: Globe,
+          id: 'gateway',
+          label: t.settings.nav.gateway,
+          onSelect: () => setActiveView('gateway')
+        }]),
       {
         active: activeView === 'keybinds',
         icon: Keyboard,
@@ -264,29 +286,31 @@ export function SettingsView({ onClose, onConfigSaved, onMainModelChanged }: Set
         label: t.settings.nav.keybinds,
         onSelect: () => setActiveView('keybinds')
       },
-      {
-        active: activeView === 'keys',
-        children: [
-          {
-            active: activeView === 'keys' && keysView === 'tools',
-            icon: Wrench,
-            id: 'kview:tools',
-            label: t.settings.nav.keysTools,
-            onSelect: () => openKeysView('tools')
-          },
-          {
-            active: activeView === 'keys' && keysView === 'settings',
-            icon: Settings2,
-            id: 'kview:settings',
-            label: t.settings.nav.keysSettings,
-            onSelect: () => openKeysView('settings')
-          }
-        ],
-        icon: KeyRound,
-        id: 'keys',
-        label: t.settings.nav.apiKeys,
-        onSelect: () => setActiveView('keys')
-      },
+      // Tools & Keys is bring-your-own-key for tool vendors, which a
+      // subscription customer does not do.
+      ...(nineGate.locked ? [] : [      {
+          active: activeView === 'keys',
+          children: [
+            {
+              active: activeView === 'keys' && keysView === 'tools',
+              icon: Wrench,
+              id: 'kview:tools',
+              label: t.settings.nav.keysTools,
+              onSelect: () => openKeysView('tools')
+            },
+            {
+              active: activeView === 'keys' && keysView === 'settings',
+              icon: Settings2,
+              id: 'kview:settings',
+              label: t.settings.nav.keysSettings,
+              onSelect: () => openKeysView('settings')
+            }
+          ],
+          icon: KeyRound,
+          id: 'keys',
+          label: t.settings.nav.apiKeys,
+          onSelect: () => setActiveView('keys')
+        }]),
       {
         active: activeView === 'plugins',
         icon: Package,
@@ -354,7 +378,7 @@ export function SettingsView({ onClose, onConfigSaved, onMainModelChanged }: Set
             <AppearanceSettings />
           ) : activeView === 'about' ? (
             <AboutSettings />
-          ) : activeView === 'gateway' ? (
+          ) : activeView === 'gateway' && !nineGate.locked ? (
             <GatewaySettings />
           ) : activeView === 'keybinds' ? (
             <KeybindSettings />
@@ -375,7 +399,7 @@ export function SettingsView({ onClose, onConfigSaved, onMainModelChanged }: Set
               onViewChange={setProviderView}
               view={providerView}
             />
-          ) : activeView === 'keys' ? (
+          ) : activeView === 'keys' && !nineGate.locked ? (
             <KeysSettings view={keysView} />
           ) : activeView === 'notifications' ? (
             <NotificationsSettings />

@@ -24,8 +24,8 @@ import type {
   StaleAuxAssignment
 } from '@/hermes'
 import { useI18n } from '@/i18n'
-import { useNineGate } from '@/lib/ninegate'
 import { AlertTriangle, Cpu, Loader2 } from '@/lib/icons'
+import { useNineGate } from '@/lib/ninegate'
 import { DEFAULT_REASONING_EFFORT, REASONING_EFFORT_VALUES } from '@/lib/reasoning-effort'
 import { cn } from '@/lib/utils'
 import { notifyError } from '@/store/notifications'
@@ -320,6 +320,7 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
   // models to choose. `api_key` providers can be activated inline (paste key);
   // OAuth / external flows hand off to the onboarding sign-in.
   const needsSetup = !!selectedProvider && !isProviderReady(selectedProviderRow)
+
   // On a locked build the backend refuses to persist any provider credential
   // but the subscription's, so offering the inline paste would present a form
   // that always fails. The model still comes from the gateway either way.

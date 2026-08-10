@@ -593,6 +593,13 @@ def init_agent(
         provider = None
         requested_provider = None
 
+        # The model has the same problem the endpoint has, one step later: it
+        # can arrive from a config file written months ago, and the plan it was
+        # written against may have moved since. A model still on the plan is
+        # kept exactly as given; one the gateway no longer serves would fail
+        # every turn with "model not found", so it becomes the plan's combo.
+        model = _leash.clamp_model(model)
+
     agent.model = model
     agent.max_iterations = max_iterations
     # Shared iteration budget — parent creates, children inherit.

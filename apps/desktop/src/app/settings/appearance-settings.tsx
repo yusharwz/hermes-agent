@@ -9,6 +9,7 @@ import type { DesktopMarketplaceSearchItem } from '@/global'
 import { useI18n } from '@/i18n'
 import { triggerHaptic } from '@/lib/haptics'
 import { Check, Download, Loader2, Palette, Trash2 } from '@/lib/icons'
+import { useNineGate } from '@/lib/ninegate'
 import { selectableCardClass } from '@/lib/selectable-card'
 import { normalize } from '@/lib/text'
 import { cn } from '@/lib/utils'
@@ -246,6 +247,7 @@ function MarketplaceThemeResults({
 export function AppearanceSettings() {
   const { t, isSavingLocale } = useI18n()
   const { themeName, mode, resolvedMode, availableThemes, setTheme, setMode } = useTheme()
+  const nineGateLocked = useNineGate().locked
   const toolViewMode = useStore($toolViewMode)
   const zoomPercent = useStore($zoomPercent)
   const embedMode = useStore($embedMode)
@@ -315,8 +317,19 @@ export function AppearanceSettings() {
             title={t.language.label}
           />
 
+          {/*
+            The skin chooser — installed-theme grid, marketplace search, and
+            remove buttons.
+
+            Atlas ships a single skin, so on a locked build there is nothing to
+            choose between and the whole apparatus comes out: no grid, no
+            search box, and no VS Code Marketplace results, which would install
+            palettes the app has deliberately stopped carrying. The light/dark
+            control below stays — that is a real choice, and the only one.
+          */}
           <ListRow
             below={
+              nineGateLocked ? null : (
               <>
                 {/* One search box: filters your installed themes (the grid)
                     and live-searches the VS Code Marketplace below. */}
@@ -397,11 +410,12 @@ export function AppearanceSettings() {
                   </p>
                 )}
               </>
+              )
             }
-            description={a.themeDesc}
+            description={nineGateLocked ? a.modeDesc : a.themeDesc}
             title={
               <div className="flex items-center justify-between gap-3">
-                <span>{a.themeTitle}</span>
+                <span>{nineGateLocked ? a.modeTitle : a.themeTitle}</span>
                 <SegmentedControl
                   onChange={id => {
                     triggerHaptic('crisp')

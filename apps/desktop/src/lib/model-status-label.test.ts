@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { currentPickerSelection, displayModelName, formatModelStatusLabel } from './model-status-label'
 import { reasoningEffortLabel } from './reasoning-effort'
@@ -69,5 +69,43 @@ describe('model-status-label', () => {
     it('falls back to the store while options are still loading', () => {
       expect(currentPickerSelection(store, undefined)).toEqual(store)
     })
+  })
+})
+
+describe('a 9Router combo reads as Auto', () => {
+  // The combo is the plan's automatic choice. Showing "NineGate-Low" names an
+  // internal routing pool as though it were the model doing the work.
+  afterEach(() => vi.unstubAllGlobals())
+
+  const lock = (locked: boolean) => vi.doMock('@/lib/ninegate', () => ({ isNineGateLocked: () => locked }))
+
+  it('renames a bare id on a locked build', async () => {
+    vi.resetModules()
+    lock(true)
+    const { displayModelName } = await import('./model-status-label')
+    expect(displayModelName('NineGate-Low')).toBe('Auto')
+  })
+
+  it('leaves a prefixed id alone on a locked build', async () => {
+    vi.resetModules()
+    lock(true)
+    const { displayModelName } = await import('./model-status-label')
+    // A single model the customer picked deliberately keeps its own name.
+    expect(displayModelName('ag/gemini-3-flash')).not.toBe('Auto')
+  })
+
+  it('never renames anything on an unlocked build', async () => {
+    vi.resetModules()
+    lock(false)
+    const { displayModelName } = await import('./model-status-label')
+    // Upstream providers ship plenty of unprefixed ids; none of them is a combo.
+    expect(displayModelName('gpt-5')).not.toBe('Auto')
+  })
+
+  it('leaves an empty model to the existing empty-state text', async () => {
+    vi.resetModules()
+    lock(true)
+    const { displayModelName } = await import('./model-status-label')
+    expect(displayModelName('')).toBe('No model')
   })
 })

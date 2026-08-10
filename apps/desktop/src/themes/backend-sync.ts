@@ -19,6 +19,8 @@
 import type { HermesSkin } from '@hermes/shared/skin'
 import { atom } from 'nanostores'
 
+import { isNineGateLocked } from '@/lib/ninegate'
+
 import { BUILTIN_THEMES } from './presets'
 import { skinToDesktopTheme } from './skin'
 import type { DesktopTheme } from './types'
@@ -56,10 +58,21 @@ export function ingestBackendSkin(skin: HermesSkin | undefined | null, { apply }
     return
   }
 
-  // `default` is "no opinion" on the PALETTE — the desktop keeps its own default
-  // (nous), so we never register a converted theme under `default`. It is still a
-  // valid apply TARGET though: a runtime switch back to `default` must repaint the
-  // desktop to its own default (setTheme normalizes `default` → nous). So we only
+  /**
+   * Atlas ships one skin, so a skin arriving from the backend has nothing to
+   * add and a real way to do harm: the CLI config can still name a retired
+   * theme, and converting it here would register that palette back into the
+   * app under a name the desktop deliberately dropped. The registry is the
+   * authority on a locked build; the backend does not get to extend it.
+   */
+  if (isNineGateLocked()) {
+    return
+  }
+
+  // `default` is "no opinion" on the PALETTE — the desktop keeps its own
+  // default, so we never register a converted theme under `default`. It is
+  // still a valid apply TARGET though: a runtime switch back to `default` must
+  // repaint the desktop to its own default. So we only
   // skip the registry step here and let it flow through the apply logic below.
   // Built-in names (mono/slate/…) already have a hand-tuned desktop palette — we
   // never shadow it, but the name is still a valid apply target.

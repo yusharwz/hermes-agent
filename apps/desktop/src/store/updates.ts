@@ -15,11 +15,11 @@ import type {
 } from '@/global'
 import { checkHermesUpdate, getActionStatus, updateHermes } from '@/hermes'
 import { translateNow } from '@/i18n'
+import { fetchNineGateStatus } from '@/lib/ninegate'
 import { persistString, storedString } from '@/lib/storage'
 import { dismissNotification, notify } from '@/store/notifications'
 import { $connection } from '@/store/session'
 import type { BackendUpdateCheckResponse } from '@/types/hermes'
-import { fetchNineGateStatus } from '@/lib/ninegate'
 
 export interface UpdateApplyState {
   applying: boolean
@@ -691,7 +691,7 @@ export function startUpdatePoller(): void {
    */
   void fetchNineGateStatus()
     .then(status => {
-      if (!status.locked) armUpdatePoller()
+      if (!status.locked) {armUpdatePoller()}
     })
     .catch(() => {
       // No /api/ninegate means a build older than the lock, which is an

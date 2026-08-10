@@ -91,7 +91,7 @@ export interface DesktopTheme {
   description: string
   /** Light palette (also reused for dark when `darkColors` is omitted). */
   colors: DesktopThemeColors
-  /** Hand-tuned dark palette. Skins like `nous` ship one. */
+  /** Hand-tuned dark palette. A skin may ship one; mono synthesises its light variant instead. */
   darkColors?: DesktopThemeColors
   typography?: Partial<DesktopThemeTypography>
   /** Light-variant terminal ANSI palette (also the fallback for dark). */

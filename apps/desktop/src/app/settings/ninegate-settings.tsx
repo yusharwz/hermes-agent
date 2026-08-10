@@ -34,9 +34,10 @@ export function NineGateSettings() {
     void (async () => {
       try {
         const next = await fetchNineGateStatus()
-        if (!cancelled) setStatus(next)
+
+        if (!cancelled) {setStatus(next)}
       } catch (err) {
-        if (!cancelled) notifyError(err, 'Gagal memuat status langganan.')
+        if (!cancelled) {notifyError(err, 'Gagal memuat status langganan.')}
       }
     })()
 
@@ -45,9 +46,11 @@ export function NineGateSettings() {
 
   const signIn = async () => {
     const key = entry.trim()
-    if (!key) return
+
+    if (!key) {return}
 
     setBusy('login')
+
     try {
       // The backend checks the key against the gateway before saving it. A
       // truncated paste looks exactly like a working key until the next
@@ -72,9 +75,10 @@ export function NineGateSettings() {
   }
 
   const signOut = async () => {
-    if (!window.confirm('Keluar akan menghapus API key dari perangkat ini. Lanjutkan?')) return
+    if (!window.confirm('Keluar akan menghapus API key dari perangkat ini. Lanjutkan?')) {return}
 
     setBusy('logout')
+
     try {
       await window.hermesDesktop.api({ method: 'POST', path: '/api/ninegate/logout' })
       setStatus(current => (current ? { ...current, keyPresent: false, keyRedacted: null } : current))
@@ -86,7 +90,7 @@ export function NineGateSettings() {
     }
   }
 
-  if (!status) return <SettingsSkeleton />
+  if (!status) {return <SettingsSkeleton />}
 
   return (
     <SettingsContent>
@@ -138,7 +142,7 @@ export function NineGateSettings() {
           autoComplete="off"
           onChange={event => setEntry(event.target.value)}
           onKeyDown={event => {
-            if (event.key === 'Enter') void signIn()
+            if (event.key === 'Enter') {void signIn()}
           }}
           placeholder="ng_live_…"
           spellCheck={false}
@@ -181,6 +185,7 @@ export function NineGateSettings() {
 function QuotaRow({ label, window: w }: { label: string; window: QuotaWindow }) {
   const pct = w.limit > 0 ? Math.max(0, Math.min(100, Math.round((w.remaining / w.limit) * 100))) : 0
   const reset = new Date(w.reset_at)
+
   const resetText = Number.isNaN(reset.getTime())
     ? '—'
     : reset.toLocaleString('id-ID', { day: 'numeric', hour: '2-digit', minute: '2-digit', month: 'short' })

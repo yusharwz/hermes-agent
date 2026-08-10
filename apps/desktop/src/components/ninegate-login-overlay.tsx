@@ -31,13 +31,14 @@ export function NineGateLoginOverlay({ enabled }: { enabled: boolean }) {
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
-    if (!enabled) return
+    if (!enabled) {return}
     let cancelled = false
 
     void (async () => {
       try {
         const status = await fetchNineGateStatus()
-        if (cancelled) return
+
+        if (cancelled) {return}
         // Only a LOCKED build with no key. An unlocked developer build has its
         // own onboarding, and a locked one that is already signed in has
         // nothing to ask.
@@ -53,9 +54,11 @@ export function NineGateLoginOverlay({ enabled }: { enabled: boolean }) {
 
   const submit = async () => {
     const key = entry.trim()
-    if (!key || busy) return
+
+    if (!key || busy) {return}
 
     setBusy(true)
+
     try {
       await window.hermesDesktop.api({
         body: { api_key: key },
@@ -71,7 +74,7 @@ export function NineGateLoginOverlay({ enabled }: { enabled: boolean }) {
     }
   }
 
-  if (!needed) return null
+  if (!needed) {return null}
 
   return (
     <div className="fixed inset-0 z-100 flex items-center justify-center bg-(--ui-bg-overlay) p-6 backdrop-blur-sm">
@@ -91,7 +94,7 @@ export function NineGateLoginOverlay({ enabled }: { enabled: boolean }) {
           autoFocus
           onChange={event => setEntry(event.target.value)}
           onKeyDown={event => {
-            if (event.key === 'Enter') void submit()
+            if (event.key === 'Enter') {void submit()}
           }}
           placeholder="ng_live_…"
           spellCheck={false}

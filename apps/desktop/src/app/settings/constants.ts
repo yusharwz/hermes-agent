@@ -635,6 +635,21 @@ export const FIELD_DESCRIPTIONS: Record<string, string> = defineFieldCopy({
 })
 
 // Curated desktop config surface: only fields a user might tune from the app.
+/**
+ * Config sections a NineGate build does not own.
+ *
+ * model — the model comes from the subscription plan and is picked in the
+ *         composer; provider and fallback-chain settings belonged to the
+ *         multi-provider world that a locked build no longer has.
+ * voice — every backend on that page wants the customer's own vendor key.
+ *
+ * Kept as a filter rather than deleted from SECTIONS so an unlocked developer
+ * build still has them. Anything that navigates to a section must apply this:
+ * the settings nav, the command palette, and palette field search, or a search
+ * for "voice" jumps to a page that redirects away.
+ */
+export const LOCKED_HIDDEN_SECTIONS: ReadonlySet<string> = new Set(['model', 'voice'])
+
 export const SECTIONS: DesktopConfigSection[] = [
   {
     id: 'model',

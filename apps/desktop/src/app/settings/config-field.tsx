@@ -5,6 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { useI18n } from '@/i18n'
+import { useNineGate } from '@/lib/ninegate'
 import { prettyName } from '@/lib/text'
 import { cn } from '@/lib/utils'
 import type { ConfigFieldSchema } from '@/types/hermes'
@@ -15,7 +16,6 @@ import { FallbackModelsField } from './fallback-models-field'
 import { fieldCopyForSchemaKey } from './field-copy'
 import { ListRow } from './primitives'
 import { SearchableSelect } from './searchable-select'
-import { useNineGate } from '@/lib/ninegate'
 
 /**
  * One generic config row: label + description resolved from the i18n field
@@ -89,7 +89,7 @@ export function ConfigField({
     // try several models per request — it is just not the customer's to
     // arrange, and an editor implying otherwise invites them to configure
     // something with no effect.
-    if (nineGateLocked) return null
+    if (nineGateLocked) {return null}
 
     return row(<FallbackModelsField onChange={onChange} value={value} />, true)
   }

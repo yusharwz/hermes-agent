@@ -1,4 +1,27 @@
+import { isNineGateLocked } from '@/lib/ninegate'
 import { DEFAULT_REASONING_EFFORT, reasoningEffortLabel } from '@/lib/reasoning-effort'
+
+/**
+ * What "Auto" is called on the wire.
+ *
+ * A 9Router combo is a pool of interchangeable models the gateway picks
+ * between, and it is identified by carrying no provider prefix — that is
+ * 9Router's own rule, not a guess made here ("NineGate-Low" is a combo,
+ * "ag/gemini-3-flash" is one model).
+ *
+ * Its internal name tells a customer nothing and, worse, implies a specific
+ * model they did not choose. Every surface that names a model goes through
+ * modelDisplayParts below, so translating it there covers the composer pill,
+ * the model menu, the visibility dialog and the delegate rows at once.
+ *
+ * Gated on the lock because a bare id means nothing of the sort on an
+ * upstream build, where plenty of providers ship unprefixed ids.
+ */
+const AUTO_LABEL = 'Auto'
+
+function isComboId(model: string): boolean {
+  return !model.trim().includes('/')
+}
 
 /** Which model/provider pair a picker should mark "current". SessionView state
  *  also drives the composer label, so a complete pair there wins over an older
@@ -72,6 +95,10 @@ function prettifyBase(base: string): string {
 /** Split a model id into a clean display name plus an optional grayed variant
  *  tag, so distinct ids (e.g. `…-4.8` vs `…-4.8-fast`) don't collapse. */
 export function modelDisplayParts(model: string): { name: string; tag: string } {
+  if (isNineGateLocked() && model.trim() && isComboId(model)) {
+    return { name: AUTO_LABEL, tag: '' }
+  }
+
   let base = modelBaseId(model)
   let tag = ''
 

@@ -5,8 +5,8 @@ import { Button } from '@/components/ui/button'
 import { Codicon } from '@/components/ui/codicon'
 import { Tip } from '@/components/ui/tooltip'
 import { useI18n } from '@/i18n'
-import { $billingBlock, billingCtaLabel, clearBillingBlock, runBillingRecovery } from '@/store/billing-block'
 import { useNineGate } from '@/lib/ninegate'
+import { $billingBlock, billingCtaLabel, clearBillingBlock, runBillingRecovery } from '@/store/billing-block'
 
 function firstLine(text: string): string {
   return (text || '').split('\n')[0]?.trim() ?? ''
@@ -32,6 +32,7 @@ export function BillingBanner({ sessionId }: { sessionId: null | string }) {
 
   const { block } = active
   const copy = t.billingBlock
+
   // "Out of Nous credits" names a company the customer has no relationship
   // with, and on a locked build the block can only ever be their own NineGate
   // allowance — there is no other account in play.
@@ -40,6 +41,7 @@ export function BillingBanner({ sessionId }: { sessionId: null | string }) {
     : block.is_nous
       ? copy.titleNous
       : copy.titleProvider(block.provider_label)
+
   const message = firstLine(block.message) || copy.fallbackMessage
 
   return (

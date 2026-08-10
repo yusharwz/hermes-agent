@@ -1,4 +1,5 @@
 import { getGlobalModelOptions, type HermesGateway, type ModelOptionsResponse } from '@/hermes'
+import { isNineGateLocked } from '@/lib/ninegate'
 import type { ModelOptionProvider } from '@/types/hermes'
 
 /**
@@ -42,6 +43,26 @@ interface ModelOptionsRequest {
   gateway?: HermesGateway
   refresh?: boolean
   sessionId?: null | string
+}
+
+/**
+ * Query options for any surface that lists models.
+ *
+ * A locked build's catalogue is not a local fact — it is the customer's plan,
+ * held on the server, and it changes when their subscription is edited. The
+ * shared 60-second staleTime is right for settings that only this app writes;
+ * it is wrong for a list somebody else owns. A stale list here means offering
+ * a model the plan has dropped, which is where "model not found" comes from.
+ *
+ * So on a locked build the list is refetched whenever a surface mounts and
+ * whenever the window is focused — which is precisely when someone returns to
+ * Atlas after changing their plan in the NineGate dashboard.
+ *
+ * Unlocked builds keep the shared defaults: their catalogue comes from local
+ * providers that do not change behind the app's back.
+ */
+export function modelOptionsFreshness(): { refetchOnWindowFocus?: boolean; staleTime?: number } {
+  return isNineGateLocked() ? { refetchOnWindowFocus: true, staleTime: 0 } : {}
 }
 
 export function modelOptionsQueryKey(profile: null | string | undefined, sessionId?: null | string) {

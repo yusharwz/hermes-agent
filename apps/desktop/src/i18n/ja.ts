@@ -333,6 +333,8 @@ export const ja = defineLocale({
       productDesc: '読みやすいツール活動と簡潔な要約を表示します。',
       technical: 'テクニカル',
       technicalDesc: '生のツール引数、結果、低レベルの詳細を含めます。',
+      modeTitle: '外観',
+      modeDesc: 'ライトかダーク。Atlas はどちらも同じグレースケールのパレットを使います。',
       themeTitle: 'テーマ',
       themeDesc: 'デスクトップ専用のパレットです。選択したモードの上に適用されます。',
       themeProfileNote: profile =>

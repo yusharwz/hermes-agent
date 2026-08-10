@@ -2245,6 +2245,13 @@ def switch_model(agent, new_model, new_provider, api_key='', base_url='', api_mo
         )
         new_provider = agent.provider or ""
 
+        # A switch aimed at a model the plan no longer carries would leave the
+        # agent pointed at a dead id until someone noticed. The catalogue is
+        # re-read here rather than trusted from startup, because a plan change
+        # is exactly the kind of thing that happens while an agent is running.
+        _leash.invalidate_catalog()
+        new_model = _leash.clamp_model(new_model)
+
     # ── Determine api_mode if not provided ──
     # Pass model so dual-wire providers (Nous Portal anthropic/* → Messages)
     # resolve correctly; without it determine_api_mode falls back to the
