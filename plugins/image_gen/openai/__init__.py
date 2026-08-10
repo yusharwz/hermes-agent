@@ -51,6 +51,27 @@ logger = logging.getLogger(__name__)
 
 API_MODEL = "gpt-image-2"
 
+
+def _api_model() -> str:
+    """The image model to actually send.
+
+    On an ordinary build this is gpt-image-2, which is what this backend was
+    written for. On a NineGate build the endpoint is the subscription gateway
+    rather than OpenAI, and it serves whatever image model the customer's plan
+    includes — asking it for gpt-image-2 gets "model not found" no matter how
+    well the rest of this file works.
+
+    The plan is the authority there, exactly as it is for text models. If it
+    carries no image model, the hard-coded name goes out unchanged and the
+    gateway's own error is what the customer sees, which is honest.
+    """
+    try:
+        from agent import ninegate_leash as leash
+
+        return leash.clamp_media_model("image", API_MODEL) or API_MODEL
+    except Exception:
+        return API_MODEL
+
 _MODELS: Dict[str, Dict[str, Any]] = {
     "gpt-image-2-low": {
         "display": "GPT Image 2 (Low)",
@@ -179,6 +200,19 @@ class OpenAIImageGenProvider(ImageGenProvider):
             import openai  # noqa: F401
         except ImportError:
             return False
+
+        # On a NineGate build the key is always present — it is the
+        # subscription key — so its presence says nothing about whether image
+        # generation is included. Offering a backend whose every call comes
+        # back "model not found" is worse than not offering it.
+        try:
+            from agent import ninegate_leash as leash
+
+            if leash.is_locked() and not leash.models_for_kind("image"):
+                return False
+        except Exception:
+            pass
+
         return True
 
     def list_models(self) -> List[Dict[str, Any]]:
@@ -296,7 +330,7 @@ class OpenAIImageGenProvider(ImageGenProvider):
 
             try:
                 response = client.images.edit(
-                    model=API_MODEL,
+                    model=_api_model(),
                     image=files if len(files) > 1 else files[0],
                     prompt=prompt,
                     size=size,  # type: ignore[arg-type]  # _SIZES values are valid gpt-image sizes
@@ -317,7 +351,7 @@ class OpenAIImageGenProvider(ImageGenProvider):
             # gpt-image-2 returns b64_json unconditionally and REJECTS
             # ``response_format`` as an unknown parameter. Don't send it.
             payload: Dict[str, Any] = {
-                "model": API_MODEL,
+                "model": _api_model(),
                 "prompt": prompt,
                 "size": size,
                 "n": 1,

@@ -441,7 +441,24 @@ class OpenAICompatibleVideoGenProvider(VideoGenProvider):
         return video
 
     def _base_url(self) -> str:
+        """Where the video job is created.
+
+        A NineGate build serves every model through the subscription gateway,
+        and this is the one media path that did not follow: the default is
+        api.openai.com and the only override read is a per-backend variable
+        the gateway never sets. A locked build would post the customer's
+        subscription key straight to OpenAI, which fails — and which is not
+        where their video generation is supposed to be metered.
+        """
         import os
+
+        try:
+            from agent import ninegate_leash as leash
+
+            if leash.is_locked():
+                return f"{leash.gateway_url()}/v1"
+        except Exception:
+            pass
 
         override = os.environ.get(f"{self.name.upper()}_BASE_URL", "").strip()
         return override or self._default_base_url

@@ -1913,6 +1913,19 @@ def _transcribe_openai(
         logger.info("Model %s not available on OpenAI, using %s", model_name, DEFAULT_STT_MODEL)
         model_name = DEFAULT_STT_MODEL
 
+    # A NineGate build transcribes through the subscription gateway, not the
+    # vendor the caller resolved. The model comes from the plan too: the ids
+    # this file defaults to are OpenAI's own names, and the gateway serves
+    # whatever the customer's plan carries under its own naming.
+    try:
+        from agent import ninegate_leash as leash
+
+        if leash.is_locked():
+            base_url, api_key = leash.clamp(base_url, api_key)
+            model_name = leash.clamp_media_model("stt", model_name) or model_name
+    except Exception:
+        pass
+
     try:
         from openai import (
             OpenAI,

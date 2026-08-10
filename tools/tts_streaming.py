@@ -269,20 +269,44 @@ class OpenAIStreamer(StreamingTTSProvider):
 
     @staticmethod
     def available() -> bool:
-        return bool(_openai_config_api_key() or resolve_openai_audio_api_key())
+        if not (_openai_config_api_key() or resolve_openai_audio_api_key()):
+            return False
+
+        # On a NineGate build the key is the subscription key and is always
+        # there, so its presence says nothing about whether speech is included
+        # in the plan. Offering a voice that answers "model not found" to every
+        # sentence is worse than offering no voice.
+        try:
+            from agent import ninegate_leash as leash
+
+            if leash.is_locked() and not leash.models_for_kind("tts"):
+                return False
+        except Exception:
+            pass
+
+        return True
 
     def stream(self, text: str) -> Iterator[bytes]:
         from openai import OpenAI
 
-        client = OpenAI(
-            api_key=(self.section.get("api_key") or resolve_openai_audio_api_key()),
-            base_url=(
-                self.section.get("base_url")
-                or get_env_value("OPENAI_BASE_URL")
-                or None
-            ),
-        )
+        api_key = self.section.get("api_key") or resolve_openai_audio_api_key()
+        base_url = self.section.get("base_url") or get_env_value("OPENAI_BASE_URL") or None
         model = self.section.get("model", "gpt-4o-mini-tts")
+
+        # A locked build serves speech through the subscription gateway. The
+        # config keys above are honoured on every other build; here they are a
+        # way around metering, and the model name is whatever the plan carries
+        # rather than a vendor default this file was written against.
+        try:
+            from agent import ninegate_leash as leash
+
+            if leash.is_locked():
+                base_url, api_key = leash.clamp(base_url, api_key)
+                model = leash.clamp_media_model("tts", model) or model
+        except Exception:
+            pass
+
+        client = OpenAI(api_key=api_key, base_url=base_url)
         voice = self.section.get("voice", "alloy")
         with client.audio.speech.with_streaming_response.create(
             model=model,

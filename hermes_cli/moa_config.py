@@ -378,6 +378,28 @@ def normalize_moa_config(raw: Any) -> dict[str, Any]:
     if not isinstance(raw, dict):
         raw = {}
 
+    # ── Mixture-of-Agents is off on a NineGate build ──
+    # MoA fans one turn out to several models at several providers and then
+    # has a third aggregate the answers. That is a multi-provider feature by
+    # construction, and a locked build has exactly one provider.
+    #
+    # It is not merely useless there, it is actively broken: the shipped
+    # defaults name openai-codex and openrouter, whose credentials the leash
+    # strips at boot, so every MoA turn would fan out to backends that cannot
+    # authenticate. A config written before the lock — which is what is sitting
+    # in ~/.atlas/config.yaml today — carries those names with enabled: true.
+    #
+    # Disabled here rather than at the call sites because every MoA read in the
+    # tree comes through this function, and a gate per call site is only
+    # correct until someone adds the next one.
+    try:
+        from agent import ninegate_leash as _leash
+
+        if _leash.is_locked():
+            raw = {}
+    except Exception:
+        pass
+
     presets_raw = raw.get("presets")
     presets: dict[str, dict[str, Any]] = {}
     if isinstance(presets_raw, dict):
@@ -401,6 +423,21 @@ def normalize_moa_config(raw: Any) -> dict[str, Any]:
         active_name = ""
 
     active = presets[default_name]
+
+    # Even with an empty config the default preset above is the shipped one,
+    # which names providers a locked build cannot reach. Reporting it as
+    # disabled is what keeps the fan-out from ever being attempted.
+    try:
+        from agent import ninegate_leash as _leash
+
+        if _leash.is_locked():
+            for preset in presets.values():
+                preset["enabled"] = False
+                for slot in preset.get("reference_models", []):
+                    slot["enabled"] = False
+    except Exception:
+        pass
+
     return {
         "default_preset": default_name,
         "active_preset": active_name,

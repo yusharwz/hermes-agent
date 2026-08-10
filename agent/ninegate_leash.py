@@ -109,6 +109,27 @@ _NEVER_STRIP = frozenset(_PINNED) | frozenset({
 #: credential ``git``, the ``gh`` CLI and the GitHub MCP server all use.
 #: Removing them would break ordinary work; the endpoint clamp in
 #: ``init_agent`` already stops Copilot being reached.
+# Media backends — image, video, speech, transcription.
+#
+# These were missing, and the gap was not random. _PROVIDER_ENV_VARS below is
+# derived from the model-provider catalogue, which lists the backends that
+# serve *text*. A vendor that only generates images, or only speaks, is not in
+# that catalogue and so was never stripped: on a locked build a customer with
+# ELEVENLABS_API_KEY in their environment kept a working voice that billed
+# their own ElevenLabs account and was invisible to metering.
+#
+# The names come from the plugins' own `requires_env` declarations and from the
+# credential lookups in the speech tools. tests/agent/test_ninegate_leash.py
+# walks the plugin tree and fails if a backend declares a credential that is
+# not listed here, so adding a media plugin cannot quietly reopen this.
+_MEDIA_ENV_VARS = frozenset({
+    "ELEVENLABS_API_KEY",
+    "FAL_KEY",
+    "GROQ_API_KEY",
+    "KREA_API_KEY",
+    "MISTRAL_API_KEY",
+})
+
 _PROVIDER_ENV_VARS = frozenset({
     "AI_GATEWAY_API_KEY",
     "AI_GATEWAY_BASE_URL",
@@ -220,7 +241,7 @@ def engage() -> None:
     root = gateway_url()
     key = subscription_key()
 
-    for name in _PROVIDER_ENV_VARS:
+    for name in _PROVIDER_ENV_VARS | _MEDIA_ENV_VARS:
         if name in _NEVER_STRIP:
             continue
         # Deleted rather than blanked: a lot of client libraries treat an empty
@@ -394,6 +415,85 @@ def auto_model(models: Optional[list] = None) -> str:
     return ""
 
 
+# Model kinds the gateway catalogues beyond plain text. Asking for one the
+# gateway does not know is an error, not an empty list, so the names matter.
+MEDIA_KINDS = ("image", "tts", "stt", "embedding", "image-to-text", "web")
+
+_media_lock = threading.Lock()
+_media_cache: dict = {}
+
+
+def _fetch_kind(kind: str) -> Optional[list]:
+    key = subscription_key()
+    if not key:
+        return None
+
+    request = urllib.request.Request(
+        f"{gateway_url()}{_MODELS_PATH}/{kind}",
+        headers={"Authorization": f"Bearer {key}", "Accept": "application/json"},
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=_CATALOG_TIMEOUT_SECONDS) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (urllib.error.URLError, TimeoutError, ValueError, OSError):
+        return None
+
+    data = payload.get("data")
+    return data if isinstance(data, list) else None
+
+
+def models_for_kind(kind: str) -> list:
+    """Model ids the plan grants for a media kind — image, tts, stt, and so on.
+
+    Empty means the plan does not include that capability, or the gateway
+    could not be reached. Callers should treat both the same way: offer the
+    feature only when there is something to offer, rather than advertising a
+    backend whose every call will come back "model not found".
+    """
+    if not is_locked() or kind not in MEDIA_KINDS:
+        return []
+
+    with _media_lock:
+        entry = _media_cache.get(kind)
+        if entry and (time.monotonic() - entry[0]) < _CATALOG_TTL_SECONDS:
+            return list(entry[1])
+
+    fetched = _fetch_kind(kind)
+
+    with _media_lock:
+        if fetched is not None:
+            ids = [str(m.get("id") or "") for m in fetched if isinstance(m, dict) and m.get("id")]
+            _media_cache[kind] = (time.monotonic(), ids)
+        entry = _media_cache.get(kind)
+        return list(entry[1]) if entry else []
+
+
+def default_model_for_kind(kind: str) -> str:
+    """The model a media backend should use, or empty when the plan has none."""
+    models = models_for_kind(kind)
+    return models[0] if models else ""
+
+
+def clamp_media_model(kind: str, model: Optional[str]) -> str:
+    """Same contract as clamp_model, for a media kind.
+
+    A model still on the plan is kept. One that is not — including a hard-coded
+    default from a backend written against a single vendor, which is how these
+    plugins are built — becomes the plan's first model for that kind.
+    """
+    current = (model or "").strip()
+
+    if not is_locked():
+        return current
+
+    models = models_for_kind(kind)
+    if not models:
+        return current
+
+    return current if current in models else models[0]
+
+
 def clamp_model(model: Optional[str], *, blocking: bool = True) -> str:
     """Keeps a model that is still on the plan; swaps a vanished one for Auto.
 
@@ -467,7 +567,12 @@ def refuses_env_write(key: str) -> bool:
     if name == KEY_ENV:
         return False
 
-    return name in _PINNED or name in (GATEWAY_ENV, LOCK_ENV) or name in _PROVIDER_ENV_VARS
+    return (
+        name in _PINNED
+        or name in (GATEWAY_ENV, LOCK_ENV)
+        or name in _PROVIDER_ENV_VARS
+        or name in _MEDIA_ENV_VARS
+    )
 
 
 def env_write_refusal(key: str) -> str:

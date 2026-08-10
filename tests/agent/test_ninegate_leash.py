@@ -136,7 +136,11 @@ def test_tool_credentials_survive(locked, monkeypatch):
         "TAVILY_API_KEY": "tvly-theirs",
         "EXA_API_KEY": "exa-theirs",
         "SERPER_API_KEY": "serper-theirs",
-        "ELEVENLABS_API_KEY": "el-theirs",
+        # ELEVENLABS_API_KEY was in this list and should not have been. Search
+        # APIs return web results and the gateway does not serve them, so
+        # stripping those breaks a feature and protects no revenue. ElevenLabs
+        # runs a model and bills for it — it is the paid path the lock exists
+        # to close, and it is covered by _MEDIA_ENV_VARS instead.
     }
     for name, value in keep.items():
         monkeypatch.setenv(name, value)
@@ -458,3 +462,69 @@ def test_blocking_callers_still_wait(locked, catalog_reset, monkeypatch):
     # latency: an agent created against a dead model fails on its first turn.
     _serve(monkeypatch, PLAN)
     assert leash.clamp_model("ag/model-withdrawn") == "NineGate-Low"
+
+
+# ---------------------------------------------------------------------------
+# Media backends are providers too
+# ---------------------------------------------------------------------------
+#
+# _PROVIDER_ENV_VARS is derived from the model-provider catalogue, which lists
+# backends that serve text. A vendor that only makes images, or only speaks, is
+# not in it — so ELEVENLABS_API_KEY, FAL_KEY and KREA_API_KEY survived engage()
+# and a locked build kept a working voice billed to the customer's own account,
+# invisible to metering. These stop that coming back.
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["ELEVENLABS_API_KEY", "FAL_KEY", "GROQ_API_KEY", "KREA_API_KEY", "MISTRAL_API_KEY"],
+)
+def test_a_media_credential_is_stripped(locked, monkeypatch, name):
+    monkeypatch.setenv(name, "sk-should-not-survive")
+    leash.engage()
+    assert os.environ.get(name) is None
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["ELEVENLABS_API_KEY", "FAL_KEY", "GROQ_API_KEY", "KREA_API_KEY", "MISTRAL_API_KEY"],
+)
+def test_a_media_credential_cannot_be_persisted(locked, name):
+    # Stripping at boot is undone by anything that writes the value back into
+    # .env afterwards, so the shared writer has to refuse it too.
+    assert leash.refuses_env_write(name)
+
+
+def test_every_media_plugin_credential_is_covered(locked):
+    """Tripwire: a new media backend cannot quietly reopen the hole.
+
+    Walks the image and video plugin trees and reads each plugin.yaml's
+    `requires_env`. Anything a backend needs in order to reach a vendor must
+    be a name this module strips — otherwise that backend keeps working on a
+    locked build, against somebody else's account.
+    """
+    import pathlib
+
+    root = pathlib.Path(__file__).resolve().parents[2]
+    declared: set[str] = set()
+
+    for manifest in root.glob("plugins/*_gen/*/plugin.yaml"):
+        text = manifest.read_text(encoding="utf-8")
+        if "requires_env" not in text:
+            continue
+        tail = text.split("requires_env", 1)[1]
+        for line in tail.splitlines()[1:]:
+            stripped = line.strip()
+            if not stripped.startswith("-"):
+                break
+            declared.add(stripped.lstrip("- ").strip().strip("\"'"))
+
+    assert declared, "no media plugin declared requires_env — has the layout moved?"
+
+    covered = leash._PROVIDER_ENV_VARS | leash._MEDIA_ENV_VARS | frozenset(leash._NEVER_STRIP)
+    missing = {name for name in declared if name not in covered}
+
+    assert not missing, (
+        f"media backends declare credentials the lock does not know about: {sorted(missing)}. "
+        "Add them to _MEDIA_ENV_VARS, or they keep working on a locked build."
+    )
