@@ -299,7 +299,12 @@ class OpenAIStreamer(StreamingTTSProvider):
                 # The endpoint is pinned; the model is not forced onto the
                 # plan's list, because media models are not on it. What 9Router
                 # serves is what is available, and it answers for itself.
-                model = leash.prefer_media_model("tts", model)
+                # The google-tts family addresses its language after the
+                # slash, so choosing the model IS choosing the language.
+                # Resolved from the text being spoken rather than a fixed
+                # default: the alternative is Indonesian read aloud by an
+                # English voice.
+                model = leash.speech_model(text, model)
         except Exception:
             pass
 

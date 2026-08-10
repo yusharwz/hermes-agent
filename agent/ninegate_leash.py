@@ -554,6 +554,114 @@ def video_models() -> list:
     return sorted(granted - claimed)
 
 
+# ---------------------------------------------------------------------------
+# Speech: the language IS the model
+# ---------------------------------------------------------------------------
+#
+# 9Router's Google TTS family is addressed as ``google-tts/<language>`` —
+# "google-tts/id", "google-tts/en" — so the part after the slash is a language
+# code, not a model name. That is why it appears in no /v1/models/tts listing
+# and why a plan granting google-tts/* looked, from the catalogue, like a grant
+# of nothing.
+#
+# It also means picking the model is picking the language, and getting it wrong
+# is not a degraded voice but the wrong one entirely: Indonesian text read by
+# an English voice.
+
+TTS_FAMILY = "google-tts/"
+
+# Used when detection cannot run or returns something unusable. Indonesian
+# because that is who the product is sold to; an English default would read
+# every Indonesian reply in the wrong accent whenever the network hiccuped.
+DEFAULT_TTS_LANGUAGE = "id"
+
+
+def _detect_language(text: str) -> str:
+    """Asks the plan's own model what language this is. Two letters, or "".
+
+    A model call rather than a heuristic because the alternative — counting
+    characters or matching stopwords — is wrong exactly where it matters:
+    Indonesian and English share an alphabet, most loanwords, and every
+    proper noun. The caller does this once per utterance, not per sentence.
+    """
+    sample = (text or "").strip()[:400]
+    if not sample:
+        return ""
+
+    model = auto_model()
+    if not model:
+        return ""
+
+    body = json.dumps(
+        {
+            "model": model,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": (
+                        "Reply with ONLY the two-letter ISO 639-1 code for the language "
+                        "of this text. No punctuation, no explanation.\n\n" + sample
+                    ),
+                }
+            ],
+            # Not streamed, because this parses one JSON body: the gateway
+            # streams by default and an SSE reply would arrive as "data:" lines
+            # that json.loads cannot read.
+            "stream": False,
+            # Generous for a two-letter answer, and deliberately so. The plan's
+            # combo routes to a reasoning model that spends tokens thinking
+            # before it emits any: at max_tokens=4 every call came back with
+            # finish_reason "length" and an empty string, so detection silently
+            # fell back to the default for every language.
+            "max_tokens": 128,
+            "temperature": 0,
+        }
+    ).encode("utf-8")
+
+    request = urllib.request.Request(
+        f"{gateway_url()}/v1/chat/completions",
+        data=body,
+        headers={
+            "Authorization": f"Bearer {subscription_key()}",
+            "Content-Type": "application/json",
+        },
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=_CATALOG_TIMEOUT_SECONDS) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        answer = payload["choices"][0]["message"]["content"]
+    except Exception:
+        return ""
+
+    code = re.sub(r"[^a-z]", "", str(answer or "").strip().lower())[:2]
+    return code if len(code) == 2 else ""
+
+
+def speech_model(text: str, requested: Optional[str] = None) -> str:
+    """The model id to send for speaking `text`.
+
+    Anything that is not the google-tts family is returned untouched — a
+    customer who configured a specific voice model keeps it. For that family
+    the language is resolved from the text, because the code after the slash
+    is what decides which voice reads it.
+    """
+    current = (requested or "").strip()
+
+    if not is_locked():
+        return current
+
+    if current and not current.startswith(TTS_FAMILY):
+        return current
+
+    explicit = current[len(TTS_FAMILY):].strip() if current.startswith(TTS_FAMILY) else ""
+    if explicit and explicit != "auto":
+        # Someone pinned a language. Honour it rather than overriding with a
+        # detection they did not ask for.
+        return current
+
+    return TTS_FAMILY + (_detect_language(text) or DEFAULT_TTS_LANGUAGE)
+
 def prefer_media_model(kind: str, model: Optional[str]) -> str:
     """The media model to send: the caller's if the gateway serves it, else one it does.
 
