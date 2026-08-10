@@ -6967,6 +6967,47 @@ def _desktop_platform_key() -> str:
     return "linux-x64"
 
 
+@app.post("/api/ninegate/update")
+async def ninegate_update_apply():
+    """Starts an update. Returns immediately; poll the progress endpoint.
+
+    Long-running and destructive, so it is a job rather than a request that
+    blocks: an HTTP timeout partway through an install would leave the caller
+    with no idea whether the swap had happened.
+    """
+    from agent import ninegate_leash as _leash
+    from hermes_cli.ninegate_update import JOB, run_update
+
+    if not _leash.is_locked():
+        raise HTTPException(status_code=400, detail="Pembaruan ini hanya untuk build NineGate.")
+
+    key = _leash.subscription_key()
+    if not key:
+        raise HTTPException(status_code=400, detail="Belum ada API key langganan.")
+
+    if not JOB.begin():
+        # Two updates renaming the same directories would race for the
+        # rollback copy, and the loser would restore over the winner's work.
+        raise HTTPException(status_code=409, detail="Pembaruan sedang berjalan.")
+
+    threading.Thread(
+        target=run_update,
+        args=(_leash.gateway_url(), key),
+        name="ninegate-update",
+        daemon=True,
+    ).start()
+
+    return {"started": True}
+
+
+@app.get("/api/ninegate/update/progress")
+async def ninegate_update_progress():
+    """Where the running update has got to, or how the last one ended."""
+    from hermes_cli.ninegate_update import JOB
+
+    return JOB.snapshot()
+
+
 @app.get("/api/ninegate")
 async def get_ninegate_status():
     """Whether this build is locked to NineGate, and to which gateway.

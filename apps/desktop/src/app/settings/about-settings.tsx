@@ -7,7 +7,7 @@ import { Codicon } from '@/components/ui/codicon'
 import { type Translations, useI18n } from '@/i18n'
 import { CheckCircle2, ExternalLink, Loader2, RefreshCw } from '@/lib/icons'
 import { useNineGate } from '@/lib/ninegate'
-import { useNineGateUpdate } from '@/lib/ninegate-update'
+import { useNineGateUpdate, useUpdateRunner } from '@/lib/ninegate-update'
 import { cn } from '@/lib/utils'
 import {
   $desktopVersion,
@@ -216,10 +216,13 @@ export function AboutSettings() {
  */
 function NineGateUpdateCard() {
   const { check, checking, state } = useNineGateUpdate()
+  const { progress, start, starting } = useUpdateRunner()
 
   if (!state.resolved) {
     return null
   }
+
+  const busy = starting || Boolean(progress?.running)
 
   const tone = state.error ? 'error' : state.updateAvailable ? 'available' : 'idle'
 
@@ -267,8 +270,46 @@ function NineGateUpdateCard() {
           </div>
         </div>
 
+        {/* Progress, once an update is actually running. A percentage on a
+            two-minute download is the difference between "working" and
+            "frozen" — the installer learned that the hard way. */}
+        {progress && (progress.running || progress.done) ? (
+          <div className="mt-3">
+            {progress.running ? (
+              <>
+                <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                  <div
+                    className="h-full rounded-full bg-primary transition-[width] duration-300"
+                    style={{ width: `${progress.percent}%` }}
+                  />
+                </div>
+                <p className="mt-1.5 text-xs text-muted-foreground">
+                  {progress.percent}% · {progress.message || progress.stage}
+                </p>
+              </>
+            ) : progress.ok ? (
+              <p className="text-xs text-emerald-600 dark:text-emerald-400">
+                Selesai. {progress.restartRequired
+                  ? progress.installerPath
+                    ? 'Tutup Atlas lalu jalankan pemasang yang sudah diunduh untuk menyelesaikan.'
+                    : 'Mulai ulang Atlas untuk memakai versi baru.'
+                  : 'Versi baru sudah aktif.'}
+              </p>
+            ) : (
+              <p className="text-xs text-destructive">
+                {progress.error} Instalasi Anda dikembalikan ke versi sebelumnya.
+              </p>
+            )}
+          </div>
+        ) : null}
+
         <div className="mt-3 flex flex-wrap items-center gap-3">
-          <Button disabled={checking} onClick={() => void check()} size="sm" variant="outline">
+          {state.updateAvailable && !state.error ? (
+            <Button disabled={busy} onClick={() => void start()} size="sm">
+              {busy ? 'Memperbarui…' : 'Perbarui sekarang'}
+            </Button>
+          ) : null}
+          <Button disabled={checking || busy} onClick={() => void check()} size="sm" variant="outline">
             {checking ? 'Memeriksa…' : 'Periksa lagi'}
           </Button>
         </div>

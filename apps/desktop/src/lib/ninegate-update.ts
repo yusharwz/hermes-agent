@@ -111,3 +111,110 @@ export function useNineGateUpdate(): {
 
   return { check, checking, state }
 }
+
+export type UpdateProgress = {
+  running: boolean
+  stage: string
+  percent: number
+  message: string
+  done: boolean
+  ok: boolean
+  error: string | null
+  restartRequired: boolean
+  /** Windows only: the installer to launch, because a running .exe cannot be replaced. */
+  installerPath: string | null
+  version: string | null
+}
+
+type ProgressPayload = {
+  running?: boolean
+  stage?: string
+  percent?: number
+  message?: string
+  done?: boolean
+  ok?: boolean
+  error?: string | null
+  restart_required?: boolean
+  installer_path?: string | null
+  version?: string | null
+}
+
+function toProgress(payload: ProgressPayload): UpdateProgress {
+  return {
+    done: Boolean(payload.done),
+    error: payload.error ?? null,
+    installerPath: payload.installer_path ?? null,
+    message: payload.message ?? '',
+    ok: Boolean(payload.ok),
+    percent: Math.max(0, Math.min(100, Number(payload.percent ?? 0))),
+    restartRequired: Boolean(payload.restart_required),
+    running: Boolean(payload.running),
+    stage: payload.stage ?? '',
+    version: payload.version ?? null
+  }
+}
+
+export async function startNineGateUpdate(): Promise<void> {
+  await window.hermesDesktop.api({ method: 'POST', path: '/api/ninegate/update' })
+}
+
+export async function fetchUpdateProgress(): Promise<UpdateProgress> {
+  return toProgress(await window.hermesDesktop.api<ProgressPayload>({ path: '/api/ninegate/update/progress' }))
+}
+
+/**
+ * Drives one update and follows it to the end.
+ *
+ * Polls rather than streams because the interesting failure is the backend
+ * going away mid-update — a socket that closes tells you nothing about whether
+ * the swap happened, while the next poll reads the job's own record of it.
+ */
+export function useUpdateRunner(): {
+  progress: UpdateProgress | null
+  start: () => Promise<void>
+  starting: boolean
+} {
+  const [progress, setProgress] = useState<UpdateProgress | null>(null)
+  const [starting, setStarting] = useState(false)
+
+  useEffect(() => {
+    if (!progress?.running) {return}
+
+    const timer = setInterval(() => {
+      void fetchUpdateProgress()
+        .then(setProgress)
+        .catch(() => {
+          // The backend restarts as part of its own update. A failed poll is
+          // expected there, so it is ignored rather than reported as a fault.
+        })
+    }, 1000)
+
+    return () => clearInterval(timer)
+  }, [progress?.running])
+
+  const start = async () => {
+    setStarting(true)
+
+    try {
+      await startNineGateUpdate()
+      setProgress(await fetchUpdateProgress())
+    } catch (error) {
+      setProgress({
+        done: true,
+        error: error instanceof Error ? error.message : 'Pembaruan tidak bisa dimulai.',
+        installerPath: null,
+        message: '',
+        ok: false,
+        percent: 0,
+        restartRequired: false,
+        running: false,
+        stage: '',
+        version: null
+      })
+    } finally {
+      setStarting(false)
+    }
+  }
+
+  return { progress, start, starting }
+}
