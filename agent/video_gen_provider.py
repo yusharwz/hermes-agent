@@ -414,7 +414,35 @@ class OpenAICompatibleVideoGenProvider(VideoGenProvider):
         return os.environ.get(self._env_key, "").strip()
 
     def is_available(self) -> bool:
-        return bool(self._api_key())
+        if not self._api_key():
+            return False
+
+        # On a NineGate build the key is the subscription key and is always
+        # present, so it says nothing about whether video is in the plan.
+        try:
+            from agent import ninegate_leash as leash
+
+            if leash.is_locked():
+                return bool(leash.video_models())
+        except Exception:
+            pass
+
+        return True
+
+    def default_model(self) -> Optional[str]:
+        """The plan's video model on a locked build, else the backend's own."""
+        try:
+            from agent import ninegate_leash as leash
+
+            if leash.is_locked():
+                granted = leash.video_models()
+                if granted:
+                    return granted[0]
+        except Exception:
+            pass
+
+        models = self.list_models()
+        return (models[0] or {}).get("id") if models else None
 
     def _create_and_poll(self, client: Any, call_kwargs: Dict[str, Any]) -> Any:
         """Create the video job and poll to completion with a hard deadline.

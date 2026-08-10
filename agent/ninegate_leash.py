@@ -281,6 +281,9 @@ def engage() -> None:
 
 _MODELS_PATH = "/v1/models"
 
+# How the gateway writes a combo grant in a plan's allow-list.
+COMBO_PREFIX = "combo:"
+
 # How long a fetched catalogue is trusted.
 #
 # Short, because a plan change has to take effect without the customer
@@ -469,10 +472,86 @@ def models_for_kind(kind: str) -> list:
         return list(entry[1]) if entry else []
 
 
+def plan_models() -> list:
+    """Every model id the plan grants, from /v1/usage.
+
+    A second source, needed because the kind catalogue does not cover
+    everything: 9Router serves video models but catalogues none of them under
+    any kind, so a plan that grants xai/grok-imagine-video looks empty to
+    models_for_kind("video") even though the model works. The allow-list knows.
+
+    Combo entries arrive prefixed ("combo:NineGate-Low"); the prefix is
+    stripped so callers compare against the same ids the model endpoints use.
+    """
+    key = subscription_key()
+    if not is_locked() or not key:
+        return []
+
+    with _media_lock:
+        entry = _media_cache.get("__plan__")
+        if entry and (time.monotonic() - entry[0]) < _CATALOG_TTL_SECONDS:
+            return list(entry[1])
+
+    request = urllib.request.Request(
+        f"{gateway_url()}/v1/usage",
+        headers={"Authorization": f"Bearer {key}", "Accept": "application/json"},
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=_CATALOG_TIMEOUT_SECONDS) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (urllib.error.URLError, TimeoutError, ValueError, OSError):
+        with _media_lock:
+            entry = _media_cache.get("__plan__")
+            return list(entry[1]) if entry else []
+
+    raw = ((payload.get("plan") or {}).get("allowed_models")) or []
+    ids = []
+    for item in raw:
+        text = str(item or "").strip()
+        if not text or text.endswith("*"):
+            # A wildcard grants a family rather than naming a model, so it
+            # cannot be offered as one.
+            continue
+        ids.append(text[len(COMBO_PREFIX):] if text.startswith(COMBO_PREFIX) else text)
+
+    with _media_lock:
+        _media_cache["__plan__"] = (time.monotonic(), ids)
+
+    return list(ids)
+
+
 def default_model_for_kind(kind: str) -> str:
     """The model a media backend should use, or empty when the plan has none."""
     models = models_for_kind(kind)
     return models[0] if models else ""
+
+
+def video_models() -> list:
+    """Models the plan grants that are not catalogued under any other kind.
+
+    9Router serves video but catalogues none of it: there is no "video" model
+    kind, and grok-imagine-video appears in no /v1/models response — yet a
+    request for it succeeds. So the plan's allow-list is the only place that
+    knows, and the way to tell a video model from the rest is subtraction.
+
+    Everything the plan grants, minus everything some kind already claims.
+    Derived rather than guessed: matching on names containing "video" would
+    work today and break the first time a vendor ships one that does not.
+
+    The proper fix is upstream — video belongs in the kind catalogue like image
+    and stt do. Until then this keeps the capability reachable instead of
+    invisible.
+    """
+    granted = set(plan_models())
+    if not granted:
+        return []
+
+    claimed = {str(entry.get("id") or "") for entry in catalog() if isinstance(entry, dict)}
+    for kind in MEDIA_KINDS:
+        claimed.update(models_for_kind(kind))
+
+    return sorted(granted - claimed)
 
 
 def clamp_media_model(kind: str, model: Optional[str]) -> str:

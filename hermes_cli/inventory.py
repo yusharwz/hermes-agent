@@ -273,10 +273,58 @@ def build_models_payload(
     if featured:
         _apply_featured(rows)
 
+    model = ctx.current_model
+    provider = ctx.current_provider
+
+    # ── A locked build shows the subscription's catalogue and nothing else ──
+    #
+    # Everything above builds the picker from what the machine looks
+    # configured for, which on a locked build is wrong in three ways at once:
+    #
+    #   - Providers the lock strips still appear. ANTHROPIC_BASE_URL is pinned
+    #     to the gateway, so "anthropic" looks configured; a developer machine
+    #     with a Copilot token gets a Copilot row. Neither can serve a request.
+    #   - The custom provider is listed with whatever model config.yaml names,
+    #     including one the plan no longer carries.
+    #   - `model` is reported as that dead id, so the composer shows it as the
+    #     active model and the next message fails with "model not found".
+    #
+    # That is the whole of the "Atlas did not adapt to my new plan" report: the
+    # request path was already clamped, the list a customer picks from was not.
+    #
+    # Applied here because this function is the single funnel every picker
+    # reads — the CLI's /model, the desktop composer, the settings pages and
+    # the auxiliary pickers all come through it.
+    try:
+        from agent import ninegate_leash as _leash
+
+        if _leash.is_locked():
+            plan_models = [str(m.get("id") or "") for m in _leash.catalog() if isinstance(m, dict)]
+
+            if plan_models:
+                gateway_row = None
+                for row in rows:
+                    if str(row.get("slug") or "").lower() in ("custom", "openai-api", "openai"):
+                        gateway_row = dict(row)
+                        break
+
+                if gateway_row is None:
+                    gateway_row = {"slug": "custom", "name": "NineGate"}
+
+                gateway_row["models"] = plan_models
+                gateway_row["name"] = "NineGate"
+                rows = [gateway_row]
+                provider = gateway_row.get("slug") or "custom"
+                model = _leash.clamp_model(model)
+    except Exception:
+        # A picker that cannot reach the gateway shows what it knew before.
+        # Never let catalogue bookkeeping stop the list from rendering.
+        pass
+
     return {
         "providers": rows,
-        "model": ctx.current_model,
-        "provider": ctx.current_provider,
+        "model": model,
+        "provider": provider,
     }
 
 
