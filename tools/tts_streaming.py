@@ -272,18 +272,12 @@ class OpenAIStreamer(StreamingTTSProvider):
         if not (_openai_config_api_key() or resolve_openai_audio_api_key()):
             return False
 
-        # On a NineGate build the key is the subscription key and is always
-        # there, so its presence says nothing about whether speech is included
-        # in the plan. Offering a voice that answers "model not found" to every
-        # sentence is worse than offering no voice.
-        try:
-            from agent import ninegate_leash as leash
-
-            if leash.is_locked() and not leash.models_for_kind("tts"):
-                return False
-        except Exception:
-            pass
-
+        # Deliberately not gated on the plan's model list. Media models are
+        # registered in 9Router rather than listed in NineGate plans, and the
+        # gateway stopped enforcing the allow-list on media routes for exactly
+        # that reason — a plan that happens not to name a speech model still
+        # has speech. Hiding the voice here would put the old behaviour back on
+        # the client side.
         return True
 
     def stream(self, text: str) -> Iterator[bytes]:
@@ -302,7 +296,10 @@ class OpenAIStreamer(StreamingTTSProvider):
 
             if leash.is_locked():
                 base_url, api_key = leash.clamp(base_url, api_key)
-                model = leash.clamp_media_model("tts", model) or model
+                # The endpoint is pinned; the model is not forced onto the
+                # plan's list, because media models are not on it. What 9Router
+                # serves is what is available, and it answers for itself.
+                model = leash.prefer_media_model("tts", model)
         except Exception:
             pass
 

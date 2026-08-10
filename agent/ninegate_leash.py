@@ -554,6 +554,36 @@ def video_models() -> list:
     return sorted(granted - claimed)
 
 
+def prefer_media_model(kind: str, model: Optional[str]) -> str:
+    """The media model to send: the caller's if the gateway serves it, else one it does.
+
+    NOT a clamp, and the difference matters. Media models are registered in
+    9Router rather than listed in NineGate plans — an operator points image,
+    speech and video at whichever backends they have, and expects those to work
+    for every subscriber — so the gateway does not enforce the plan's allow-list
+    on media routes.
+
+    What is left to do here is narrower: a backend written against one vendor
+    carries that vendor's default (gpt-image-2, tts-1, whisper-1), and the
+    gateway may be serving something else entirely. If the catalogue knows the
+    requested id, it goes out unchanged. If it does not, but the catalogue has
+    something for this kind, that is sent instead of a name we already know
+    will fail. If the catalogue is unreachable or empty, the request goes out
+    as asked — the gateway is entitled to answer for itself, and guessing on
+    its behalf is how a working capability gets hidden.
+    """
+    current = (model or "").strip()
+
+    if not is_locked():
+        return current
+
+    available = models_for_kind(kind)
+    if not available or current in available:
+        return current
+
+    return available[0]
+
+
 def clamp_media_model(kind: str, model: Optional[str]) -> str:
     """Same contract as clamp_model, for a media kind.
 

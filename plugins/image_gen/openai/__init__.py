@@ -68,7 +68,7 @@ def _api_model() -> str:
     try:
         from agent import ninegate_leash as leash
 
-        return leash.clamp_media_model("image", API_MODEL) or API_MODEL
+        return leash.prefer_media_model("image", API_MODEL)
     except Exception:
         return API_MODEL
 
@@ -201,18 +201,9 @@ class OpenAIImageGenProvider(ImageGenProvider):
         except ImportError:
             return False
 
-        # On a NineGate build the key is always present — it is the
-        # subscription key — so its presence says nothing about whether image
-        # generation is included. Offering a backend whose every call comes
-        # back "model not found" is worse than not offering it.
-        try:
-            from agent import ninegate_leash as leash
-
-            if leash.is_locked() and not leash.models_for_kind("image"):
-                return False
-        except Exception:
-            pass
-
+        # Deliberately not gated on the plan's model list — media models are
+        # registered in 9Router, not listed in NineGate plans, and the gateway
+        # does not enforce the allow-list on media routes.
         return True
 
     def list_models(self) -> List[Dict[str, Any]]:

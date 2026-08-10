@@ -1922,7 +1922,7 @@ def _transcribe_openai(
 
         if leash.is_locked():
             base_url, api_key = leash.clamp(base_url, api_key)
-            model_name = leash.clamp_media_model("stt", model_name) or model_name
+            model_name = leash.prefer_media_model("stt", model_name)
     except Exception:
         pass
 
