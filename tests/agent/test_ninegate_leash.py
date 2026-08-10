@@ -528,3 +528,36 @@ def test_every_media_plugin_credential_is_covered(locked):
         f"media backends declare credentials the lock does not know about: {sorted(missing)}. "
         "Add them to _MEDIA_ENV_VARS, or they keep working on a locked build."
     )
+
+
+# ---------------------------------------------------------------------------
+# The upstream Nous paths cannot fire
+# ---------------------------------------------------------------------------
+#
+# conversation_loop still carries Nous Portal entitlement and rate-limit
+# handling, with messages that name the product. Deleting it from a fork makes
+# every future upstream merge harder, so the question worth answering is not
+# "is it still there" but "can a customer ever see it". Both gates are
+# checked below against what a locked build actually holds.
+
+
+def test_the_nous_route_cannot_be_reached_when_locked(locked, monkeypatch):
+    from agent.conversation_loop import _is_nous_inference_route
+
+    # What agent_init leaves behind: the provider is cleared and the endpoint
+    # is the gateway. Neither gate opens.
+    base_url, _ = leash.clamp("https://inference-api.nousresearch.com/v1", "whatever")
+
+    assert not _is_nous_inference_route("", base_url)
+    assert not _is_nous_inference_route(None, base_url)
+    assert base_url.startswith(GATEWAY)
+
+
+def test_the_nous_route_still_works_on_an_unlocked_build(unlocked):
+    # The upstream agent is untouched — this is a distribution policy, not a
+    # change to what the agent is. If this ever fails, the fork has started
+    # breaking the thing it forked.
+    from agent.conversation_loop import _is_nous_inference_route
+
+    assert _is_nous_inference_route("nous", "")
+    assert _is_nous_inference_route("", "https://inference-api.nousresearch.com/v1")
