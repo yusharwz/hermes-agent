@@ -7,6 +7,7 @@ import { Codicon } from '@/components/ui/codicon'
 import { type Translations, useI18n } from '@/i18n'
 import { CheckCircle2, ExternalLink, Loader2, RefreshCw } from '@/lib/icons'
 import { useNineGate } from '@/lib/ninegate'
+import { useNineGateUpdate } from '@/lib/ninegate-update'
 import { cn } from '@/lib/utils'
 import {
   $desktopVersion,
@@ -120,7 +121,7 @@ export function AboutSettings() {
           for by the subscription and already tested. Until release metadata is
           served from the NineGate gateway, offering no button is strictly
           safer than offering one that points upstream. */}
-      {nineGateLocked ? null : (
+      {nineGateLocked ? <NineGateUpdateCard /> : (
       <div className="mx-auto mt-4 w-full max-w-2xl">
         <SectionHeading icon={RefreshCw} title={a.updates} />
 
@@ -198,5 +199,80 @@ export function AboutSettings() {
         <UninstallSection />
       </div>
     </SettingsContent>
+  )
+}
+
+/**
+ * The update card on a NineGate build.
+ *
+ * The upstream one below talks to GitHub, which a locked build cannot use: the
+ * repository is private, and applying a result would be a `git pull` over an
+ * installation that was never a checkout. This reads the gateway's release
+ * metadata instead — the same manifest the installer records at install time.
+ *
+ * An install that predates the version marker reports "unknown" rather than
+ * "up to date". Claiming currency we cannot prove is the one answer that
+ * leaves a customer sitting on an old build believing they are current.
+ */
+function NineGateUpdateCard() {
+  const { check, checking, state } = useNineGateUpdate()
+
+  if (!state.resolved) {
+    return null
+  }
+
+  const tone = state.error ? 'error' : state.updateAvailable ? 'available' : 'idle'
+
+  const headline = state.error
+    ? 'Tidak bisa memeriksa pembaruan'
+    : state.updateAvailable
+      ? state.current
+        ? `Pembaruan tersedia — versi ${state.latest}`
+        : `Versi terbaru: ${state.latest}`
+      : 'Atlas Anda sudah versi terbaru'
+
+  const detail = state.error
+    ? `${state.error}. Periksa koneksi Anda, lalu coba lagi.`
+    : state.updateAvailable
+      ? state.current
+        ? `Terpasang ${state.current}. ${
+            state.desktopChanged
+              ? 'Pembaruan ini termasuk aplikasinya, jadi Atlas akan dimulai ulang setelah selesai.'
+              : 'Pembaruan ini hanya menyentuh agen — aplikasi tidak perlu dimulai ulang.'
+          }`
+        : 'Versi yang terpasang tidak tercatat, jadi kami tidak bisa memastikan Anda sudah mutakhir. Menjalankan pembaruan akan menyamakannya.'
+      : `Terpasang ${state.current ?? '—'}.`
+
+  return (
+    <div className="mx-auto mt-4 w-full max-w-2xl">
+      <SectionHeading icon={RefreshCw} title="Pembaruan" />
+
+      <div
+        className={cn(
+          'rounded-xl border px-4 py-3 text-sm',
+          tone === 'available' && 'border-primary/30 bg-primary/5 text-foreground',
+          tone === 'error' && 'border-destructive/35 bg-destructive/5 text-destructive',
+          tone === 'idle' && 'border-border/70 bg-muted/20 text-foreground'
+        )}
+      >
+        <div className="flex items-start gap-2">
+          {tone === 'available' ? (
+            <Codicon className="mt-0.5 size-4 shrink-0 text-primary" name="cloud-download" size="1rem" />
+          ) : tone === 'error' ? null : (
+            <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+          )}
+          <div className="min-w-0">
+            <p className="font-medium">{headline}</p>
+            <p className="mt-1 text-xs text-muted-foreground">{detail}</p>
+          </div>
+        </div>
+
+        <div className="mt-3 flex flex-wrap items-center gap-3">
+          <Button disabled={checking} onClick={() => void check()} size="sm" variant="outline">
+            {checking ? 'Memeriksa…' : 'Periksa lagi'}
+          </Button>
+        </div>
+      </div>
+    </div>
   )
 }

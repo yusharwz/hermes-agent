@@ -6868,6 +6868,105 @@ def _catalog_provider_env_metadata() -> dict:
     return meta
 
 
+@app.get("/api/ninegate/update")
+async def ninegate_update_check():
+    """Whether a newer Atlas is published, and what changed.
+
+    The About tab had no update button on a locked build, because the upstream
+    one talks to GitHub: a private repository it cannot reach, and if it could,
+    a `git pull` over an installation that was never a checkout. The gateway
+    publishes release metadata now, so this compares what the installer
+    recorded against what is being served.
+
+    A missing marker — an installation from before the marker existed, or one
+    whose final step could not reach the gateway — reports "unknown", not "up
+    to date". Claiming currency we cannot prove is the one answer that leaves a
+    customer stranded on an old build believing they are current.
+    """
+    from agent import ninegate_leash as _leash
+
+    if not _leash.is_locked():
+        return {"locked": False, "update_available": False}
+
+    payload: dict = {
+        "locked": True,
+        "current": None,
+        "latest": None,
+        "update_available": False,
+        "desktop_changed": False,
+        "error": None,
+    }
+
+    installed = _read_installed_marker()
+    payload["current"] = (installed or {}).get("version")
+
+    try:
+        import httpx
+
+        async with httpx.AsyncClient(timeout=20) as client:
+            response = await client.get(
+                f"{_leash.gateway_url()}/v1/atlas/manifest",
+                headers={"Authorization": f"Bearer {_leash.subscription_key()}"},
+            )
+        if response.status_code != 200:
+            payload["error"] = f"gateway menjawab {response.status_code}"
+            return payload
+        latest = response.json()
+    except Exception as exc:
+        payload["error"] = "tidak bisa menghubungi gateway"
+        _log.debug("pemeriksaan pembaruan gagal: %s", exc, exc_info=True)
+        return payload
+
+    payload["latest"] = latest.get("version")
+    payload["built_at"] = latest.get("builtAt")
+
+    if not payload["current"]:
+        # Unknown, so offer the update rather than assert currency.
+        payload["update_available"] = True
+        payload["reason"] = "unknown_installed_version"
+        return payload
+
+    payload["update_available"] = payload["current"] != payload["latest"]
+
+    # The desktop shell and the agent ship on different cadences, and replacing
+    # the running application is the risky half. Saying which one moved lets
+    # the UI tell the customer whether a restart is coming.
+    try:
+        platform_key = _desktop_platform_key()
+        old = ((installed or {}).get("desktop") or {}).get(platform_key) or {}
+        new = (latest.get("desktop") or {}).get(platform_key) or {}
+        payload["desktop_changed"] = bool(new.get("sha256")) and old.get("sha256") != new.get("sha256")
+    except Exception:
+        payload["desktop_changed"] = False
+
+    return payload
+
+
+def _read_installed_marker() -> Optional[dict]:
+    """The manifest the installer recorded, or None when it is absent/unreadable."""
+    import json as _json
+
+    marker = Path(os.environ.get("ATLAS_HOME") or (Path.home() / ".atlas")) / "installed.json"
+    try:
+        return _json.loads(marker.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def _desktop_platform_key() -> str:
+    """The manifest key for this machine, matching what the build script emits."""
+    import platform as _platform
+
+    system = _platform.system().lower()
+    machine = _platform.machine().lower()
+
+    if system == "windows":
+        return "windows-x64"
+    if system == "darwin":
+        return "macos-arm64" if machine in ("arm64", "aarch64") else "macos-x64"
+    return "linux-x64"
+
+
 @app.get("/api/ninegate")
 async def get_ninegate_status():
     """Whether this build is locked to NineGate, and to which gateway.
