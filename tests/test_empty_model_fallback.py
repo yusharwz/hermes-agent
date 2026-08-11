@@ -44,6 +44,46 @@ class TestGetDefaultModelForProvider:
 
 
 
+class TestResolveDefaultModelRespectsTheLeash:
+    """A locked build has no vendor catalog to fall back to.
+
+    Four call sites used to ask ``get_default_model_for_provider`` directly and
+    got a model the subscription never served. With a warm catalogue the agent
+    constructor clamped it back, but the vendor id had already been cached as
+    the session's last-known-good model; with a cold one it went to the gateway
+    and came back ``model_not_allowed``.
+    """
+
+    PLAN = [
+        {"id": "NineGate-Low", "owned_by": "combo"},
+        {"id": "ag/gemini-3-flash", "owned_by": "ag"},
+    ]
+
+    def test_locked_resolves_the_plan_combo_not_a_vendor_model(self):
+        from hermes_cli.models import resolve_default_model
+
+        with patch("agent.ninegate_leash.is_locked", return_value=True), \
+             patch("agent.ninegate_leash.catalog", return_value=list(self.PLAN)):
+            assert resolve_default_model("openrouter") == "NineGate-Low"
+
+    def test_locked_with_unreadable_plan_stays_empty(self):
+        """Empty keeps the downstream recovery nets armed; a vendor id defeats
+        them by looking like a successful resolution."""
+        from hermes_cli.models import resolve_default_model
+
+        with patch("agent.ninegate_leash.is_locked", return_value=True), \
+             patch("agent.ninegate_leash.catalog", return_value=[]):
+            assert resolve_default_model("openrouter") == ""
+
+    def test_unlocked_still_uses_the_provider_catalog(self):
+        from hermes_cli.models import get_default_model_for_provider, resolve_default_model
+
+        with patch("agent.ninegate_leash.is_locked", return_value=False):
+            assert resolve_default_model("openai-codex") == get_default_model_for_provider(
+                "openai-codex"
+            )
+
+
 class TestGatewayEmptyModelFallback:
     """Test that _resolve_session_agent_runtime fills in empty model from provider catalog."""
 

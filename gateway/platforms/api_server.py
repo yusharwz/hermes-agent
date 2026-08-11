@@ -2586,8 +2586,8 @@ class APIServerAdapter(BasePlatformAdapter):
         # resolved a model is never treated as "empty" here.
         if not model and runtime_kwargs.get("provider"):
             try:
-                from hermes_cli.models import get_default_model_for_provider
-                model = get_default_model_for_provider(runtime_kwargs["provider"])
+                from hermes_cli.models import resolve_default_model
+                model = resolve_default_model(runtime_kwargs["provider"])
                 if model:
                     logger.info(
                         "No model configured — defaulting to %s for provider %s",

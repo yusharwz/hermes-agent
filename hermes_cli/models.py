@@ -1455,6 +1455,29 @@ def get_default_model_for_provider(provider: str) -> str:
     return models[0] if models else ""
 
 
+def resolve_default_model(provider: str) -> str:
+    """The model to use when a provider resolved but no model was ever chosen.
+
+    Four call sites reached the same conclusion independently — the gateway's
+    session runtime, the API server, the CLI agent setup, and Feishu comments —
+    and every one of them asked a *vendor* catalog. On a locked build there is
+    no vendor catalog to ask: the only models that exist are the ones the
+    subscription serves, so the answer is the plan's combo ("Auto"), which is
+    what ``clamp_model`` returns for an empty model.
+
+    Returning "" when the plan cannot be read is deliberate, and is the point of
+    this helper. A vendor id here is not a harmless guess: it is *confidently
+    wrong*, so it survives the empty-model safety nets downstream and gets
+    cached as the session's ``last_resolved_model`` — the "last known good"
+    value later recovery turns restore. An empty string keeps those nets armed.
+    """
+    from agent import ninegate_leash as _leash
+
+    if _leash.is_locked():
+        return _leash.clamp_model("")
+    return get_default_model_for_provider(provider)
+
+
 def _openrouter_model_is_free(pricing: Any) -> bool:
     """Return True when both prompt and completion pricing are zero."""
     if not isinstance(pricing, dict):

@@ -156,8 +156,8 @@ class CLIAgentSetupMixin:
         # model so the API call doesn't fail with "model must be non-empty".
         if not self.model and resolved_provider:
             try:
-                from hermes_cli.models import get_default_model_for_provider
-                _default = get_default_model_for_provider(resolved_provider)
+                from hermes_cli.models import resolve_default_model
+                _default = resolve_default_model(resolved_provider)
                 if _default:
                     self.model = _default
                     logger.info(
