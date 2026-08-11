@@ -107,6 +107,7 @@ class _OpenAIProxy:
 
 OpenAI = _OpenAIProxy()  # module-level name, resolves lazily on call/isinstance
 
+from agent import ninegate_leash as _leash
 from agent.credential_pool import load_pool
 from agent.model_metadata import MINIMUM_CONTEXT_LENGTH, get_model_context_length
 from hermes_cli.config import get_hermes_home
@@ -6966,6 +6967,29 @@ _AUX_DIRECT_API_BASE_URLS: Dict[str, str] = {
 }
 
 
+def _locked_auxiliary_route(
+    model: Optional[str],
+) -> Tuple[str, Optional[str], Optional[str], Optional[str], Optional[str]]:
+    """Where an auxiliary task goes on a locked build: the gateway.
+
+    ``custom`` rather than a first-class provider name because that is the
+    identity the registry gives an OpenAI-dialect endpoint supplied as a bare
+    base_url — the same shape ``_expand_direct_api_alias`` produces for
+    ``provider: openai``.
+
+    The catalogue is read non-blocking so a background title generation never
+    stalls a turn on an HTTP round trip. A cold cache is the exception: with
+    nothing to check a model against, ``clamp_model`` returns what it was given
+    rather than guessing, so a model the plan has withdrawn — or no model at
+    all — would go to the wire and come back a 400. That first call pays for a
+    blocking read; every one after it is served from cache.
+    """
+    base_url, api_key = _leash.clamp(None, None)
+    blocking = not _leash.catalog(blocking=False)
+    target = _leash.clamp_model(model, blocking=blocking)
+    return "custom", target or None, base_url, api_key, "chat_completions"
+
+
 def _resolve_task_provider_model(
     task: str = None,
     provider: str = None,
@@ -7028,6 +7052,23 @@ def _resolve_task_provider_model(
 
     resolved_model = model or cfg_model
     resolved_api_mode = cfg_api_mode
+
+    # A locked build has exactly one endpoint and one catalogue, so an
+    # auxiliary task cannot auto-detect its way to a vendor the way an unlocked
+    # one does. Everything below this point — the MoA unwrap, the direct-API
+    # aliases, the auto-detection chain — exists to pick between providers that
+    # a locked build has had stripped out of its environment, so it walks
+    # openrouter → nous → local → api-key, finds nothing, and raises "No LLM
+    # provider configured for task=title_generation provider=auto" while the
+    # main model is talking to the gateway perfectly well.
+    #
+    # Returning here routes every auxiliary task (title generation, vision,
+    # compression, memory flush) through the same gateway the main model uses.
+    # An auxiliary model that the customer pinned in config.yaml is kept when
+    # the plan still serves it — clamp_model only substitutes one that has
+    # vanished, and then only for the plan's combo.
+    if _leash.is_locked():
+        return _locked_auxiliary_route(resolved_model)
 
     # MoA virtual provider: an *explicit* `provider: moa` override (either the
     # caller-passed `provider` arg or `auxiliary.<task>.provider` in

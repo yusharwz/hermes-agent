@@ -2886,7 +2886,13 @@ def cmd_whatsapp(args):
         print("✓ Bridge dependencies already installed")
 
     # ── Step 5: Check for existing session ───────────────────────────────
-    session_dir = get_hermes_home() / "whatsapp" / "session"
+    # Resolved, not hardcoded: the desktop app pairs into the same directory,
+    # and this command used to name the legacy one outright — so pairing here
+    # wrote a second session the bridge never read, and pairing in the app left
+    # this command insisting WhatsApp had never been set up.
+    from hermes_constants import get_whatsapp_session_dir
+
+    session_dir = get_whatsapp_session_dir()
     session_dir.mkdir(parents=True, exist_ok=True)
 
     if (session_dir / "creds.json").exists():

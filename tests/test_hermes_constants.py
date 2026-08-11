@@ -600,3 +600,55 @@ class TestWslPathTranslation:
         assert hermes_constants.translate_cwd_for_wsl_backend(r"\\wsl.localhost\Ubuntu\home\alex") == "/home/alex"
         # Already-POSIX paths pass through untouched.
         assert hermes_constants.translate_cwd_for_wsl_backend("/home/alex") == "/home/alex"
+
+
+class TestWhatsAppSessionDir:
+    """One pairing, one directory.
+
+    Four call sites used to resolve this: the bridge adapter, the LID resolver,
+    the desktop pairing endpoint, and ``hermes whatsapp``. The last hardcoded
+    the legacy path, so a pairing made in the app was invisible to the CLI and
+    a pairing made in the CLI orphaned the app's.
+    """
+
+    def test_new_installs_get_the_consolidated_path(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        assert hermes_constants.get_whatsapp_session_dir() == (
+            tmp_path / "platforms" / "whatsapp" / "session"
+        )
+
+    def test_an_existing_legacy_pairing_is_kept(self, tmp_path, monkeypatch):
+        """Upgrading must not lose a session the user already scanned for."""
+        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        legacy = tmp_path / "whatsapp" / "session"
+        legacy.mkdir(parents=True)
+        (legacy / "creds.json").write_text("{}")
+
+        assert hermes_constants.get_whatsapp_session_dir() == legacy
+
+    def test_an_empty_legacy_directory_does_not_shadow_a_real_pairing(
+        self, tmp_path, monkeypatch
+    ):
+        """``hermes whatsapp`` used to mkdir the legacy path before reading it."""
+        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        (tmp_path / "whatsapp" / "session").mkdir(parents=True)
+        current = tmp_path / "platforms" / "whatsapp" / "session"
+        current.mkdir(parents=True)
+        (current / "creds.json").write_text("{}")
+
+        assert hermes_constants.get_whatsapp_session_dir() == current
+
+    def test_asking_does_not_create_the_directory(self, tmp_path, monkeypatch):
+        """A read-only check must not bring its own answer into existence."""
+        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        resolved = hermes_constants.get_whatsapp_session_dir()
+        assert not resolved.exists()
+
+    def test_every_caller_agrees(self, tmp_path, monkeypatch):
+        """The regression itself: two directories, one pairing."""
+        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        from hermes_cli import web_server
+
+        assert web_server._whatsapp_session_path() == (
+            hermes_constants.get_whatsapp_session_dir()
+        )

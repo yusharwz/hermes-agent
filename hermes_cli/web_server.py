@@ -8579,9 +8579,9 @@ def _normalize_whatsapp_allowed_users(value: Any) -> str:
 
 
 def _whatsapp_session_path() -> Path:
-    from hermes_constants import get_hermes_dir
+    from hermes_constants import get_whatsapp_session_dir
 
-    return get_hermes_dir("platforms/whatsapp/session", "whatsapp/session")
+    return get_whatsapp_session_dir()
 
 
 def _whatsapp_phone_from_identifier(value: Any) -> str | None:

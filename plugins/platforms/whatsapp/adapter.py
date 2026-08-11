@@ -30,7 +30,7 @@ from typing import Dict, Optional, Any
 from hermes_cli._subprocess_compat import windows_detach_popen_kwargs
 from hermes_constants import (
     find_node_executable,
-    get_hermes_dir,
+    get_whatsapp_session_dir,
     with_hermes_node_path,
 )
 
@@ -404,7 +404,7 @@ class WhatsAppAdapter(WhatsAppBehaviorMixin, BasePlatformAdapter):
         )
         self._session_path: Path = Path(config.extra.get(
             "session_path",
-            get_hermes_dir("platforms/whatsapp/session", "whatsapp/session")
+            get_whatsapp_session_dir()
         ))
         self._reply_prefix: Optional[str] = config.extra.get("reply_prefix")
         self._dm_policy = str(config.extra.get("dm_policy") or os.getenv("WHATSAPP_DM_POLICY", "pairing")).strip().lower()

@@ -282,6 +282,27 @@ def get_hermes_dir(
     return home / new_subpath
 
 
+def get_whatsapp_session_dir(home: Path | None = None) -> Path:
+    """The one directory a WhatsApp pairing lives in.
+
+    There is exactly one Baileys session on a machine, and four places used to
+    ask for it: the bridge adapter, the LID resolver, the desktop pairing
+    endpoint, and ``hermes whatsapp``. Three called ``get_hermes_dir`` and the
+    fourth hardcoded the legacy path, which is not a difference of opinion but
+    a fork: the CLI paired into ``<home>/whatsapp/session`` while the desktop
+    app had already paired into ``<home>/platforms/whatsapp/session``, and
+    whichever one the adapter happened to resolve was the only one that worked.
+    Worse, the CLI created its directory before checking it, so pairing from
+    the CLI gave the legacy path content and silently orphaned a pairing the
+    desktop app had already completed.
+
+    Call this instead of resolving the pair by hand. Creating the directory is
+    left to the caller so that a read-only check (is there a pairing?) cannot
+    bring the directory it is asking about into existence.
+    """
+    return get_hermes_dir("platforms/whatsapp/session", "whatsapp/session", home=home)
+
+
 def iter_hermes_node_dirs(home: Path | None = None) -> list[Path]:
     """Return Hermes-managed Node.js directories in preferred lookup order.
 

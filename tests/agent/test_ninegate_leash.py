@@ -561,3 +561,100 @@ def test_the_nous_route_still_works_on_an_unlocked_build(unlocked):
 
     assert _is_nous_inference_route("nous", "")
     assert _is_nous_inference_route("", "https://inference-api.nousresearch.com/v1")
+
+
+# ---------------------------------------------------------------------------
+# Auxiliary tasks
+# ---------------------------------------------------------------------------
+#
+# Title generation, vision, compression and memory flush do not go through the
+# main model's resolution path — they have their own, and it was built to pick
+# between vendor providers. A locked build has had those stripped out of its
+# environment, so the chain walked openrouter → nous → local → api-key, found
+# nothing, and raised while the main model was talking to the gateway fine.
+
+
+def test_an_auxiliary_task_is_routed_to_the_gateway(locked, catalog_reset, monkeypatch):
+    from agent import auxiliary_client as ax
+
+    _serve(monkeypatch, PLAN)
+
+    provider, model, base_url, api_key, api_mode = ax._resolve_task_provider_model(
+        "title_generation"
+    )
+
+    assert provider == "custom"
+    assert model == "NineGate-Low"
+    assert base_url == f"{GATEWAY}/v1"
+    assert api_key == os.environ[leash.KEY_ENV]
+    assert api_mode == "chat_completions"
+
+
+@pytest.mark.parametrize(
+    "task", ["title_generation", "vision", "compression", "memory_flush"]
+)
+def test_every_auxiliary_task_lands_on_the_plan(locked, catalog_reset, monkeypatch, task):
+    """No task may keep its own opinion about where it runs."""
+    from agent import auxiliary_client as ax
+
+    _serve(monkeypatch, PLAN)
+    provider, model, base_url, _, _ = ax._resolve_task_provider_model(task)
+
+    assert (provider, base_url) == ("custom", f"{GATEWAY}/v1")
+    assert model in {entry["id"] for entry in PLAN}
+
+
+def test_a_configured_auxiliary_model_is_kept_when_the_plan_serves_it(
+    locked, catalog_reset, monkeypatch
+):
+    """Clamping is for models that vanished, not for overriding a choice."""
+    from agent import auxiliary_client as ax
+
+    _serve(monkeypatch, PLAN)
+    provider, model, base_url, _, _ = ax._resolve_task_provider_model(
+        "title_generation", model="ag/gemini-3-flash"
+    )
+
+    assert model == "ag/gemini-3-flash"
+    assert (provider, base_url) == ("custom", f"{GATEWAY}/v1")
+
+
+def test_an_auxiliary_model_that_left_the_plan_falls_back_to_the_combo(
+    locked, catalog_reset, monkeypatch
+):
+    from agent import auxiliary_client as ax
+
+    _serve(monkeypatch, PLAN)
+    _, model, _, _, _ = ax._resolve_task_provider_model(
+        "title_generation", model="openrouter/some-withdrawn-model"
+    )
+
+    assert model == "NineGate-Low"
+
+
+def test_an_auxiliary_task_never_reaches_a_vendor_on_a_locked_build(
+    locked, catalog_reset, monkeypatch
+):
+    """The failure this replaced: auto-detection reaching for stripped keys."""
+    from agent import auxiliary_client as ax
+
+    _serve(monkeypatch, PLAN)
+
+    def explode(*args, **kwargs):
+        raise AssertionError("auto-detection must not run on a locked build")
+
+    monkeypatch.setattr(ax, "_resolve_auto", explode, raising=False)
+
+    provider, _, base_url, _, _ = ax._resolve_task_provider_model("title_generation")
+    assert (provider, base_url) == ("custom", f"{GATEWAY}/v1")
+
+
+def test_auxiliary_resolution_is_untouched_on_an_unlocked_build(unlocked, monkeypatch):
+    """Upstream keeps its auto-detection chain — this is distribution policy."""
+    from agent import auxiliary_client as ax
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-mine")
+    provider, _, base_url, _, _ = ax._resolve_task_provider_model("title_generation")
+
+    assert base_url != f"{GATEWAY}/v1"
+    assert provider != "custom" or base_url is None
