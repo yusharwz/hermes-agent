@@ -851,8 +851,12 @@ def camofox_vision(question: str, annotate: bool = False,
         )
 
         # Save screenshot to cache
-        from hermes_constants import get_hermes_home
-        screenshots_dir = get_hermes_home() / "browser_screenshots"
+        # Resolved, not hardcoded: every other screenshot site asks
+        # get_hermes_dir for this, so naming the legacy path here wrote where
+        # the readers were not looking — and creating it gave the legacy path
+        # content, which silently moved the whole cache back for everyone else.
+        from hermes_constants import get_hermes_dir
+        screenshots_dir = get_hermes_dir("cache/screenshots", "browser_screenshots")
         screenshots_dir.mkdir(parents=True, exist_ok=True)
         screenshot_path = str(screenshots_dir / f"browser_screenshot_{uuid.uuid4().hex[:8]}.png")
 
