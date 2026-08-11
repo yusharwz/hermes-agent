@@ -29,6 +29,7 @@ from typing import Dict, Optional, Any
 
 from hermes_cli._subprocess_compat import windows_detach_popen_kwargs
 from hermes_constants import (
+    WHATSAPP_LOGGED_OUT_MARKER,
     find_node_executable,
     get_whatsapp_session_dir,
     with_hermes_node_path,
@@ -694,6 +695,26 @@ class WhatsAppAdapter(WhatsAppBehaviorMixin, BasePlatformAdapter):
             for attempt in range(15):
                 await asyncio.sleep(1)
                 if self._bridge_process.poll() is not None:
+                    # "Logged out" is not a failed connection: the phone revoked
+                    # this device, and every retry from here re-reads
+                    # credentials the server has already thrown away. Left
+                    # generic, this looped on a 5-minute backoff indefinitely
+                    # and told the customer only "failed to connect".
+                    if (self._session_path / WHATSAPP_LOGGED_OUT_MARKER).exists():
+                        logger.warning(
+                            "[%s] WhatsApp logged out — this device was unlinked "
+                            "from the phone. Re-pair from the dashboard or run "
+                            "`hermes whatsapp`.",
+                            self.name,
+                        )
+                        self._set_fatal_error(
+                            "whatsapp_logged_out",
+                            "WhatsApp was unlinked from your phone — re-pair from "
+                            "the dashboard or run `hermes whatsapp`.",
+                            retryable=False,
+                        )
+                        self._close_bridge_log()
+                        return False
                     print(f"[{self.name}] Bridge process died (exit code {self._bridge_process.returncode})")
                     print(f"[{self.name}] Check log: {self._bridge_log}")
                     self._close_bridge_log()

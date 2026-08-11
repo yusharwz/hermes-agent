@@ -652,3 +652,48 @@ class TestWhatsAppSessionDir:
         assert web_server._whatsapp_session_path() == (
             hermes_constants.get_whatsapp_session_dir()
         )
+
+
+class TestWhatsAppLinkedState:
+    """Linked means "can connect", not "has a file".
+
+    An unlinked device leaves creds.json exactly where it was and invalidates
+    it server-side, so the file test reported a live pairing for a session the
+    bridge refused to open — and the gateway retried it forever as though it
+    were a network problem.
+    """
+
+    def _session(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        session = hermes_constants.get_whatsapp_session_dir()
+        session.mkdir(parents=True)
+        return session
+
+    def test_no_session_is_not_linked(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        assert hermes_constants.whatsapp_session_is_linked() is False
+
+    def test_credentials_alone_are_linked(self, tmp_path, monkeypatch):
+        session = self._session(tmp_path, monkeypatch)
+        (session / "creds.json").write_text("{}")
+        assert hermes_constants.whatsapp_session_is_linked() is True
+
+    def test_a_revoked_session_is_not_linked(self, tmp_path, monkeypatch):
+        """The regression: credentials on disk, pairing dead on the server."""
+        session = self._session(tmp_path, monkeypatch)
+        (session / "creds.json").write_text("{}")
+        (session / hermes_constants.WHATSAPP_LOGGED_OUT_MARKER).write_text(
+            '{"at": "2026-08-11T07:15:05Z", "reason": 401}'
+        )
+        assert hermes_constants.whatsapp_session_is_linked() is False
+
+    def test_re_pairing_clears_the_verdict(self, tmp_path, monkeypatch):
+        """The marker must not outlive the session it condemned."""
+        session = self._session(tmp_path, monkeypatch)
+        (session / "creds.json").write_text("{}")
+        marker = session / hermes_constants.WHATSAPP_LOGGED_OUT_MARKER
+        marker.write_text("{}")
+        assert hermes_constants.whatsapp_session_is_linked() is False
+
+        marker.unlink()
+        assert hermes_constants.whatsapp_session_is_linked() is True

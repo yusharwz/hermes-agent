@@ -8805,6 +8805,16 @@ def _run_whatsapp_pairing(pairing_id: str, session_path: Path, mode: str) -> Non
             return
         record.status = "installing"
 
+    # A pairing that is starting supersedes whatever the last one ended as.
+    # Left behind, the logged-out marker would outlive the session it condemned
+    # and report the fresh pairing as revoked the moment it succeeded.
+    try:
+        from hermes_constants import WHATSAPP_LOGGED_OUT_MARKER
+
+        (session_path / WHATSAPP_LOGGED_OUT_MARKER).unlink(missing_ok=True)
+    except OSError:
+        pass
+
     try:
         proc = _spawn_whatsapp_pairing_process(session_path, mode)
     except Exception as exc:
@@ -8900,8 +8910,14 @@ async def get_whatsapp_link(profile: Optional[str] = None):
     between offering a QR code and offering a disconnect button.
     """
     with _config_profile_scope(profile):
+        from hermes_constants import whatsapp_session_is_linked
+
         session_path = _whatsapp_session_path()
-        linked = (session_path / "creds.json").exists()
+        # Not a bare creds.json test: an unlinked device leaves the file behind,
+        # so that answered "linked" for a session WhatsApp had already revoked
+        # and the settings page offered a disconnect button for a session that
+        # was not connected to anything.
+        linked = whatsapp_session_is_linked(session_path)
         account_id = account_name = account_phone = None
 
         if linked:
@@ -8961,10 +8977,15 @@ async def start_whatsapp_onboarding(body: WhatsAppOnboardingStart):
     effective_profile = body.profile
 
     with _config_profile_scope(effective_profile):
+        from hermes_constants import whatsapp_session_is_linked
+
         session_path = _whatsapp_session_path()
         expires_at_ts = time.time() + _WHATSAPP_ONBOARDING_TTL_SECONDS
         expires_at = _utc_iso_from_ts(expires_at_ts)
-        if (session_path / "creds.json").exists():
+        # A revoked session still has its credentials on disk, so testing for
+        # the file alone answered "already connected" and returned no QR code —
+        # leaving the one screen that can fix a logged-out pairing unable to.
+        if whatsapp_session_is_linked(session_path):
             pairing_id = secrets.token_urlsafe(16)
             account_id, account_name, account_phone = _whatsapp_linked_account_from_session(session_path)
             record = _WhatsAppOnboardingSession(

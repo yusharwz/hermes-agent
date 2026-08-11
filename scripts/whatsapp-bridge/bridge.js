@@ -24,7 +24,7 @@ import express from 'express';
 import { Boom } from '@hapi/boom';
 import pino from 'pino';
 import path from 'path';
-import { mkdirSync, readFileSync, existsSync, readdirSync, unlinkSync } from 'fs';
+import { mkdirSync, readFileSync, existsSync, readdirSync, unlinkSync, writeFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { randomBytes, createHash } from 'crypto';
 import { execFileSync } from 'child_process';
@@ -435,6 +435,25 @@ async function startSocket() {
 
       if (reason === DisconnectReason.loggedOut) {
         emitPairEvent({ event: 'error', error: 'logged_out', reason });
+        // Leave a mark the Python side can read. Being logged out is not a
+        // connection problem — the phone revoked this device and no amount of
+        // reconnecting brings it back — but the only evidence used to be a
+        // line in a log file and exit code 1, which is indistinguishable from
+        // the bridge dying for any other reason. So the gateway retried
+        // forever, and the app went on reporting "linked" because creds.json
+        // was still sitting on disk.
+        //
+        // Written next to the credentials it invalidates, so it travels with
+        // the session and a re-pair clears it along with everything else.
+        try {
+          writeFileSync(
+            path.join(SESSION_DIR, 'logged-out.json'),
+            JSON.stringify({ at: new Date().toISOString(), reason }),
+          );
+        } catch (e) {
+          // A session directory we cannot write to is already broken in ways
+          // this marker will not fix; the exit code still reports the failure.
+        }
         if (!PAIR_JSON) {
           console.log('❌ Logged out. Delete session and restart to re-authenticate.');
         }

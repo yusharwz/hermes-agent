@@ -303,6 +303,40 @@ def get_whatsapp_session_dir(home: Path | None = None) -> Path:
     return get_hermes_dir("platforms/whatsapp/session", "whatsapp/session", home=home)
 
 
+# Written by the bridge when WhatsApp reports DisconnectReason.loggedOut.
+WHATSAPP_LOGGED_OUT_MARKER = "logged-out.json"
+
+
+def whatsapp_session_is_linked(
+    session_dir: Path | None = None,
+    *,
+    home: Path | None = None,
+) -> bool:
+    """Whether a WhatsApp session can actually connect.
+
+    Not the same question as "is there a creds.json", which is what the app
+    used to answer. A phone that unlinks the device leaves the credentials
+    exactly where they were and invalidates them on the server, so the file
+    test reported "linked" for a session the bridge refused to open — while
+    the gateway retried it forever as if it were a network problem.
+
+    The bridge drops a marker beside the credentials when it is told it has
+    been logged out, so both the CLI and the desktop app can tell a live
+    pairing from a revoked one without asking WhatsApp.
+
+    ``session_dir`` is the directory to judge. Callers that have already
+    resolved one — the profile-scoped endpoints, which may be pointed at a
+    profile's home rather than the default — must pass it, because resolving
+    it again here would answer about a different directory than the one they
+    are talking about, which is the whole class of bug this helper exists to
+    end.
+    """
+    session = session_dir if session_dir is not None else get_whatsapp_session_dir(home=home)
+    if not (session / "creds.json").exists():
+        return False
+    return not (session / WHATSAPP_LOGGED_OUT_MARKER).exists()
+
+
 def iter_hermes_node_dirs(home: Path | None = None) -> list[Path]:
     """Return Hermes-managed Node.js directories in preferred lookup order.
 

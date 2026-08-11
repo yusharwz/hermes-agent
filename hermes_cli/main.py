@@ -2890,12 +2890,20 @@ def cmd_whatsapp(args):
     # and this command used to name the legacy one outright — so pairing here
     # wrote a second session the bridge never read, and pairing in the app left
     # this command insisting WhatsApp had never been set up.
-    from hermes_constants import get_whatsapp_session_dir
+    from hermes_constants import get_whatsapp_session_dir, whatsapp_session_is_linked
 
     session_dir = get_whatsapp_session_dir()
     session_dir.mkdir(parents=True, exist_ok=True)
 
-    if (session_dir / "creds.json").exists():
+    # Same test the desktop app uses. A session the phone has unlinked still has
+    # its credentials on disk, and answering "already paired" for one sent the
+    # customer away from the only command that could fix it.
+    if (session_dir / "creds.json").exists() and not whatsapp_session_is_linked(session_dir):
+        print("⚠ WhatsApp was unlinked from your phone — this session is dead.")
+        print("  Clearing it so you can scan a fresh code.")
+        shutil.rmtree(session_dir, ignore_errors=True)
+        session_dir.mkdir(parents=True, exist_ok=True)
+    elif (session_dir / "creds.json").exists():
         print("✓ Existing WhatsApp session found")
         try:
             response = input(
