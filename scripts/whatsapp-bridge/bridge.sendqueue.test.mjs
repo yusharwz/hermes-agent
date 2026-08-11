@@ -12,25 +12,24 @@
 
 import { strict as assert } from 'node:assert';
 
+import { createSendPacer } from './pacing.js';
+
 // ------------------------------------------------------------------
 // 1.  Unit test for the queue primitives
 // ------------------------------------------------------------------
 
 /**
- * Replicate the queue logic from bridge.js so we can test it in
- * isolation without importing the full module (which would trigger
- * Baileys / express side effects).
+ * The queue under test is the one bridge.js runs, imported from the module
+ * both of them share. This file used to re-implement `enqueueSend` locally to
+ * avoid importing bridge.js (which would drag in Baileys and express side
+ * effects) — which meant the tested queue and the shipped queue were two
+ * copies free to drift apart, and pacing was later added to only one of them.
+ *
+ * Pacing off: these tests are about ordering and error isolation, and the
+ * pacing behaviour has its own tests in pacing.test.mjs.
  */
 function createSendQueue() {
-  let _sendQueue = Promise.resolve();
-
-  function enqueueSend(fn) {
-    const task = _sendQueue.then(() => fn(), () => fn());
-    _sendQueue = task.catch(() => {});
-    return task;
-  }
-
-  return { enqueueSend };
+  return createSendPacer();
 }
 
 // -- serial ordering -------------------------------------------------

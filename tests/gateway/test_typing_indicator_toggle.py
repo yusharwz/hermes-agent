@@ -85,3 +85,28 @@ async def test_typing_indicator_enabled_spawns_refresh_loop():
     assert adapter.send_typing.await_count >= 1
 
 
+
+
+def test_whatsapp_defaults_the_indicator_off():
+    """The Baileys bridge is an unofficial client, and the refresh loop emits a
+    'composing' presence every two seconds for the whole length of a reply.
+    On WhatsApp that heartbeat is an automation signature rather than a
+    courtesy, so it is off unless the operator asks for it."""
+    from gateway.config import PlatformConfig
+
+    assert PlatformConfig.from_dict({"enabled": True}, platform="whatsapp").typing_indicator is False
+    assert PlatformConfig.from_dict(
+        {"enabled": True, "typing_indicator": True}, platform="whatsapp"
+    ).typing_indicator is True
+
+
+def test_other_platforms_keep_the_indicator_on():
+    """Including whatsapp_cloud, which is Meta's own API and expects it."""
+    from gateway.config import PlatformConfig
+
+    for name in ("telegram", "slack", "discord", "matrix", "whatsapp_cloud"):
+        cfg = PlatformConfig.from_dict({"enabled": True}, platform=name)
+        assert cfg.typing_indicator is True, name
+
+    # No platform argument at all keeps the historical default.
+    assert PlatformConfig.from_dict({"enabled": True}).typing_indicator is True

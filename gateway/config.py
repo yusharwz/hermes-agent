@@ -657,8 +657,20 @@ class PlatformConfig:
             }
         return result
 
+    # Platforms where the typing bubble costs more than it is worth. The
+    # refresh loop re-sends presence every two seconds for as long as a reply
+    # takes; on an official API that is ordinary courtesy, but the Baileys
+    # WhatsApp bridge is an unofficial client and WhatsApp acts on behavioural
+    # signals. A steady composing heartbeat that starts within milliseconds of
+    # every inbound message and never comes from a human hand is one of the
+    # loudest available. Off unless the operator asks for it; ``whatsapp_cloud``
+    # is Meta's own API and is not affected.
+    _TYPING_INDICATOR_DEFAULTS = {"whatsapp": False}
+
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "PlatformConfig":
+    def from_dict(
+        cls, data: Dict[str, Any], platform: str = ""
+    ) -> "PlatformConfig":
         data = _coerce_dict(data)
         home_channel = None
         if isinstance(data.get("home_channel"), dict):
@@ -700,7 +712,10 @@ class PlatformConfig:
             home_channel=home_channel,
             reply_to_mode=data.get("reply_to_mode", "first"),
             gateway_restart_notification=_coerce_bool(_grn, True),
-            typing_indicator=_coerce_bool(_typing, True),
+            typing_indicator=_coerce_bool(
+                _typing,
+                cls._TYPING_INDICATOR_DEFAULTS.get(str(platform or "").strip().lower(), True),
+            ),
             typing_status_text=_typing_text,
             channel_overrides=channel_overrides,
             extra=extra,
@@ -1091,7 +1106,9 @@ class GatewayConfig:
                 continue
             try:
                 platform = Platform(platform_name)
-                platforms[platform] = PlatformConfig.from_dict(platform_data)
+                platforms[platform] = PlatformConfig.from_dict(
+                    platform_data, platform=platform_name
+                )
             except ValueError:
                 pass  # Skip unknown platforms
         

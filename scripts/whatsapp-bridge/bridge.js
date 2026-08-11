@@ -33,6 +33,7 @@ import qrcode from 'qrcode-terminal';
 import { matchesAllowedUser, parseAllowedUsers } from './allowlist.js';
 import { createOutboundIdTracker } from './outbound_ids.js';
 import { classifyOwnerMessageGate } from './owner_message_gate.js';
+import { createSendPacer, createReconnectBackoff } from './pacing.js';
 import {
   buildPollPayload,
   buildLocationPayload,
@@ -123,35 +124,103 @@ const CHUNK_DELAY_MS = parseInt(process.env.WHATSAPP_CHUNK_DELAY_MS || '300', 10
 // fires. Fail fast instead so the gateway can surface a real error and retry.
 const SEND_TIMEOUT_MS = parseInt(process.env.WHATSAPP_SEND_TIMEOUT_MS || '60000', 10);
 
+// --- What this client tells WhatsApp it is ---------------------------------
+// The three fields land in the account's Linked Devices list and in every
+// handshake. Announcing the agent by name there is free identification: it
+// says "this is software" to the one party whose opinion decides whether the
+// number keeps working. A plain desktop-browser identity is what the session
+// actually is — a WhatsApp Web connection — and is what an operator who set
+// this up by scanning a QR code would expect to see on their phone.
+//
+// Overridable because "what a normal browser looks like" changes, and an
+// operator should not need a new build to follow it.
+const BROWSER_ID = (() => {
+  const raw = String(process.env.WHATSAPP_BROWSER || '').trim();
+  if (!raw) return ['Ubuntu', 'Chrome', '120.0.0.0'];
+  const parts = raw.split(',').map(s => s.trim()).filter(Boolean);
+  return parts.length === 3 ? parts : ['Ubuntu', 'Chrome', '120.0.0.0'];
+})();
+
+// --- Pacing: how fast this client is willing to look ------------------------
+// Two independent limits, because they answer different questions. The jitter
+// answers "how soon after a message arrives does a reply appear" — a reply
+// that lands on a fixed, sub-second beat every single time is not something a
+// person produces. The rate limit answers "how many messages per minute can
+// leave this number at most", which is what a runaway loop or a burst of
+// queued replies would otherwise blow through.
+//
+// Both are off-by-default-shaped: set to 0 to disable, and the defaults are
+// small enough not to make the agent feel broken.
+const REPLY_JITTER_MIN_MS = Math.max(0, parseInt(process.env.WHATSAPP_REPLY_JITTER_MIN_MS || '400', 10) || 0);
+const REPLY_JITTER_MAX_MS = Math.max(
+  REPLY_JITTER_MIN_MS,
+  parseInt(process.env.WHATSAPP_REPLY_JITTER_MAX_MS || '2500', 10) || 0,
+);
+const MAX_SENDS_PER_MINUTE = Math.max(0, parseInt(process.env.WHATSAPP_MAX_SENDS_PER_MINUTE || '20', 10) || 0);
+
+// --- Reconnect pacing -------------------------------------------------------
+// A dropped connection used to be retried on a flat three-second beat, with no
+// ceiling and no reset condition. When the far side is refusing the session
+// rather than glitching — a revoked device, a contested session, a number
+// under restriction — that turns into a metronome: the same client asking the
+// same question every three seconds, indefinitely. That is both the loudest
+// pattern this bridge can produce and the least likely to help, because
+// nothing about it changes the answer.
+//
+// So: exponential, capped, jittered, and reset only by a connection that
+// actually opens. The jitter matters for its own reason — several bridges
+// restarted together (a machine waking, a gateway restart) would otherwise
+// retry in lockstep forever.
+const RECONNECT_MIN_MS = Math.max(1000, parseInt(process.env.WHATSAPP_RECONNECT_MIN_MS || '5000', 10) || 5000);
+const RECONNECT_MAX_MS = Math.max(
+  RECONNECT_MIN_MS,
+  parseInt(process.env.WHATSAPP_RECONNECT_MAX_MS || '300000', 10) || 300000,
+);
+
+const reconnectBackoff = createReconnectBackoff({
+  minMs: RECONNECT_MIN_MS,
+  maxMs: RECONNECT_MAX_MS,
+});
+const nextReconnectDelayMs = () => reconnectBackoff.next();
+const resetReconnectBackoff = () => reconnectBackoff.reset();
+
 // --- Send queue: serialise all sock.sendMessage() calls across concurrent
 //     HTTP handlers so a single Baileys socket never has overlapping sends.
 //     Overlapping sends are the root cause of cross-chat contamination
 //     (#33360) — the WhatsApp protocol-level routing can misdeliver when
 //     two sendMessage() Promises race on the same socket. ---
-let _sendQueue = Promise.resolve();
-
-function enqueueSend(fn) {
-  const task = _sendQueue.then(() => fn(), () => fn());
-  _sendQueue = task.catch(() => {});
-  return task;
-}
+const { enqueueSend } = createSendPacer({
+  jitterMinMs: REPLY_JITTER_MIN_MS,
+  jitterMaxMs: REPLY_JITTER_MAX_MS,
+  maxSendsPerMinute: MAX_SENDS_PER_MINUTE,
+  onThrottle: (waitMs) =>
+    console.warn(
+      `[bridge] outbound rate limit reached (${MAX_SENDS_PER_MINUTE}/min), holding ${waitMs}ms`,
+    ),
+});
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 function sendWithTimeout(chatId, payload, options = {}, timeoutMs = SEND_TIMEOUT_MS) {
-  let timer;
-  const timeoutPromise = new Promise((_, reject) => {
-    timer = setTimeout(
-      () => reject(new Error(`sendMessage timed out after ${timeoutMs / 1000}s`)),
-      timeoutMs,
-    );
+  // The clock starts when this send actually begins, not when it is queued.
+  // It used to start here, outside the queue, which meant every message ahead
+  // of this one in the queue spent this message's timeout budget — and with
+  // outbound pacing in front of the queue a busy moment could time out sends
+  // that had not been attempted yet. What the timeout is for is a Baileys call
+  // that hangs mid-upload, so it should measure only that call.
+  return enqueueSend(() => {
+    let timer;
+    const timeoutPromise = new Promise((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error(`sendMessage timed out after ${timeoutMs / 1000}s`)),
+        timeoutMs,
+      );
+    });
+    return Promise.race([sock.sendMessage(chatId, payload, options), timeoutPromise])
+      .finally(() => clearTimeout(timer));
   });
-  return enqueueSend(() =>
-    Promise.race([sock.sendMessage(chatId, payload, options), timeoutPromise])
-      .finally(() => clearTimeout(timer))
-  );
 }
 
 function formatOutgoingMessage(message) {
@@ -402,14 +471,29 @@ async function startSocket() {
     auth: state,
     logger,
     printQRInTerminal: false,
-    browser: ['Hermes Agent', 'Chrome', '120.0'],
+    browser: BROWSER_ID,
     syncFullHistory: false,
     markOnlineOnConnect: false,
     // Required for Baileys 7.x: without this, incoming messages that need
     // E2EE session re-establishment are silently dropped (msg.message === null)
+    // Answers retry receipts. When a recipient's device cannot decrypt
+    // something we sent — a desynchronised Signal session, the "Bad MAC" case
+    // — it asks for that message again, and Baileys re-encrypts whatever this
+    // returns against a fresh session.
+    //
+    // This used to answer every such request with an empty message, on the
+    // stated grounds that the bridge keeps no message store. It keeps one:
+    // `messageStore` above, which every send and every inbound message
+    // already writes to. So the retry handshake completed while the recipient
+    // received a blank message, and the content that failed to arrive was
+    // never actually resent — no error anywhere, just a message the other side
+    // never got, and a peer with reason to keep asking.
     getMessage: async (key) => {
-      // We don't maintain a message store, so return a placeholder.
-      // This is enough for Baileys to complete the retry handshake.
+      const remembered = messageStore.get(key?.id);
+      if (remembered?.message) return remembered.message;
+      // Nothing to resend (evicted, or from before this process started).
+      // The placeholder still completes the handshake, which is better than
+      // leaving the peer's request unanswered.
       return { conversation: '' };
     },
   });
@@ -461,17 +545,25 @@ async function startSocket() {
       } else {
         // 515 = restart requested (common after pairing). Always reconnect.
         emitPairEvent({ event: 'disconnected', reason });
+        const waitMs = reason === 515 ? 1000 : nextReconnectDelayMs();
         if (!PAIR_JSON) {
           if (reason === 515) {
             console.log('↻ WhatsApp requested restart (code 515). Reconnecting...');
           } else {
-            console.log(`⚠️  Connection closed (reason: ${reason}). Reconnecting in 3s...`);
+            console.log(
+              `⚠️  Connection closed (reason: ${reason}). Reconnecting in ${Math.round(waitMs / 1000)}s...`,
+            );
           }
         }
-        setTimeout(startSocket, reason === 515 ? 1000 : 3000);
+        setTimeout(startSocket, waitMs);
       }
     } else if (connection === 'open') {
       connectionState = 'connected';
+      // A connection that lasted is the only evidence that the trouble is
+      // over, so the backoff resets here rather than on the attempt itself —
+      // otherwise a socket that opens and drops immediately, which is exactly
+      // what a contested session does, would retry at the floor forever.
+      resetReconnectBackoff();
       const connectedUser = sock?.user
         ? {
             id: sock.user.id || null,
