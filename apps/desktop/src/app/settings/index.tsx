@@ -1,25 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { useLocation, useNavigate } from 'react-router'
 
-import { codiconIcon } from '@/components/ui/codicon'
 import { Tip } from '@/components/ui/tooltip'
 import { getHermesConfigDefaults, getHermesConfigRecord, saveHermesConfig } from '@/hermes'
 import { useI18n } from '@/i18n'
 import { triggerHaptic } from '@/lib/haptics'
 import {
   Archive,
-  BarChart3,
   Bell,
   Download,
-  Globe,
   Info,
   Keyboard,
-  KeyRound,
   Package,
   RefreshCw,
-  Settings2,
   Upload,
-  Wrench,
   Zap
 } from '@/lib/icons'
 import { useNineGate } from '@/lib/ninegate'
@@ -202,23 +196,18 @@ export function SettingsView({ onClose, onConfigSaved, onMainModelChanged }: Set
         label: t.settings.nav.notifications,
         onSelect: () => setActiveView('notifications')
       },
-      // The Billing page is the Nous account: plan catalogue, buy credits,
-      // payment method, links to portal.nousresearch.com. A NineGate customer
-      // pays Dritech and has no account there, so every control on it either
-      // does nothing or sends them somewhere that will not recognise them.
+      // Billing, Providers, Gateway and Tools & Keys are not in this build.
       //
-      // Removed rather than replaced in place — the NineGate usage view is a
-      // different page with different data, and leaving this one reachable
-      // while that is built would keep showing someone else's billing.
-      ...(nineGate.locked
-        ? []
-        : [{
-            active: activeView === 'billing',
-            icon: BarChart3,
-            id: 'billing',
-            label: t.settings.nav.billing,
-            onSelect: () => setActiveView('billing')
-          }]),
+      // They were filtered out here at render time, which left them in the
+      // bundle: the nav drew them and then dropped them, so a customer saw a
+      // flash of the exact pages this distribution does not have — for longer
+      // on a slow connection, because the filter waited on a backend answer.
+      //
+      // Hiding is the wrong tool when the answer is never "sometimes". The
+      // provider is fixed, the key is the subscription's, a custom endpoint
+      // would be ignored, the gateway is chosen by the installer, and billing
+      // belongs to an account on someone else's service. None of them can ever
+      // apply here, so none of them is built.
       // The one account page a locked build has. Hidden on an unlocked one,
       // where there is no subscription to show and the provider pages below
       // are the real thing.
@@ -232,53 +221,6 @@ export function SettingsView({ onClose, onConfigSaved, onMainModelChanged }: Set
             onSelect: () => setActiveView('nineGate')
           }]
         : []),
-      // On a locked build every one of these three pages is a form that saves
-      // nothing: the provider is fixed, the key is the subscription's, and a
-      // custom endpoint would be ignored. Removed rather than disabled — a
-      // greyed-out page still reads as "something I could unlock".
-      ...(nineGate.locked
-        ? []
-        : [{
-        active: activeView === 'providers',
-        children: [
-          {
-            active: activeView === 'providers' && providerView === 'accounts',
-            icon: codiconIcon('account'),
-            id: 'pview:accounts',
-            label: t.settings.nav.providerAccounts,
-            onSelect: () => openProviderView('accounts')
-          },
-          {
-            active: activeView === 'providers' && providerView === 'keys',
-            icon: KeyRound,
-            id: 'pview:keys',
-            label: t.settings.nav.providerApiKeys,
-            onSelect: () => openProviderView('keys')
-          },
-          {
-            active: activeView === 'providers' && providerView === 'custom-endpoints',
-            icon: Globe,
-            id: 'pview:custom-endpoints',
-            label: t.settings.nav.providerCustomEndpoints,
-            onSelect: () => openProviderView('custom-endpoints')
-          }
-        ],
-        gapBefore: true,
-        icon: Zap,
-        id: 'providers',
-        label: t.settings.nav.providers,
-        onSelect: () => setActiveView('providers')
-      }]),
-      // Gateway picks which Atlas backend to talk to — local, remote or ssh.
-      // The installer decides that, and a customer who changes it points their
-      // app at a backend that is not theirs.
-      ...(nineGate.locked ? [] : [      {
-          active: activeView === 'gateway',
-          icon: Globe,
-          id: 'gateway',
-          label: t.settings.nav.gateway,
-          onSelect: () => setActiveView('gateway')
-        }]),
       {
         active: activeView === 'keybinds',
         icon: Keyboard,
@@ -286,31 +228,6 @@ export function SettingsView({ onClose, onConfigSaved, onMainModelChanged }: Set
         label: t.settings.nav.keybinds,
         onSelect: () => setActiveView('keybinds')
       },
-      // Tools & Keys is bring-your-own-key for tool vendors, which a
-      // subscription customer does not do.
-      ...(nineGate.locked ? [] : [      {
-          active: activeView === 'keys',
-          children: [
-            {
-              active: activeView === 'keys' && keysView === 'tools',
-              icon: Wrench,
-              id: 'kview:tools',
-              label: t.settings.nav.keysTools,
-              onSelect: () => openKeysView('tools')
-            },
-            {
-              active: activeView === 'keys' && keysView === 'settings',
-              icon: Settings2,
-              id: 'kview:settings',
-              label: t.settings.nav.keysSettings,
-              onSelect: () => openKeysView('settings')
-            }
-          ],
-          icon: KeyRound,
-          id: 'keys',
-          label: t.settings.nav.apiKeys,
-          onSelect: () => setActiveView('keys')
-        }]),
       {
         active: activeView === 'plugins',
         icon: Package,

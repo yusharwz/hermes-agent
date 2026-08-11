@@ -8891,6 +8891,69 @@ def _restart_gateway_after_whatsapp_onboarding(profile: Optional[str] = None) ->
     }
 
 
+@app.get("/api/messaging/whatsapp/link")
+async def get_whatsapp_link(profile: Optional[str] = None):
+    """Whether WhatsApp is linked right now, and to whom.
+
+    The pairing endpoints below describe one attempt at linking. This describes
+    the standing state, which is what a settings page needs in order to decide
+    between offering a QR code and offering a disconnect button.
+    """
+    with _config_profile_scope(profile):
+        session_path = _whatsapp_session_path()
+        linked = (session_path / "creds.json").exists()
+        account_id = account_name = account_phone = None
+
+        if linked:
+            account_id, account_name, account_phone = _whatsapp_linked_account_from_session(session_path)
+
+    return {
+        "linked": linked,
+        "account_id": account_id,
+        "account_name": account_name,
+        "account_phone": account_phone,
+    }
+
+
+@app.delete("/api/messaging/whatsapp/link")
+async def delete_whatsapp_link(profile: Optional[str] = None):
+    """Unlinks this device by discarding the stored WhatsApp session.
+
+    WHY THIS HAS TO EXIST
+    =====================
+    Pairing starts by checking for creds.json and, if it is there, reporting
+    "connected" without starting the bridge at all. That is right when the link
+    is live and wrong the moment it is not: unlinking Atlas from the phone
+    leaves the file behind, so the app kept claiming a connection that no
+    longer existed and would not offer a new QR code — the customer had no way
+    back in short of deleting a file they should never have to know about.
+
+    Deleting the credentials is what makes the next pairing start from scratch.
+    Removed rather than archived: they authenticate as the customer's WhatsApp
+    account, and keeping a copy of that around after they asked to disconnect
+    is not ours to do.
+    """
+    with _config_profile_scope(profile):
+        session_path = _whatsapp_session_path()
+
+        # Any pairing still watching this directory would race the removal and
+        # write its own files back in.
+        with _whatsapp_onboarding_lock:
+            for pairing_id, record in list(_whatsapp_onboarding_sessions.items()):
+                if str(record.session_path) == str(session_path):
+                    _terminate_whatsapp_pairing(record.proc)
+                    _whatsapp_onboarding_sessions.pop(pairing_id, None)
+
+        removed = False
+        if session_path.exists():
+            shutil.rmtree(session_path, ignore_errors=True)
+            removed = True
+
+        session_path.mkdir(parents=True, exist_ok=True)
+
+    return {"linked": False, "removed": removed}
+
+
 @app.post("/api/messaging/whatsapp/onboarding/start")
 async def start_whatsapp_onboarding(body: WhatsAppOnboardingStart):
     mode = _normalize_whatsapp_onboarding_mode(body.mode)
