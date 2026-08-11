@@ -130,23 +130,47 @@ export function useNineGate(): NineGateStatus {
 
   useEffect(() => {
     let cancelled = false
+    let attempt = 0
+    let timer: ReturnType<typeof setTimeout> | undefined
 
-    void (async () => {
+    /**
+     * Asked until it answers, not asked once.
+     *
+     * The desktop app starts its own backend, and the window is painted long
+     * before that backend accepts connections. Asking once meant the settings
+     * page mounted during startup, got a connection error, and concluded the
+     * build was unlocked — permanently. Every page the lock removes came back,
+     * and the billing and provider sections with them, on an installation
+     * whose backend was reporting locked: true the whole time.
+     *
+     * A failure is "no answer yet", not "the answer is no". The one case that
+     * genuinely means unlocked — a backend too old to have this route — still
+     * resolves, because it answers 404 rather than refusing the connection.
+     *
+     * Backs off to ten seconds and keeps trying: an answer half a minute late
+     * is still right, where no answer is wrong forever.
+     */
+    const ask = async (): Promise<void> => {
+      if (cancelled) {return}
+
       try {
         const next = await fetchNineGateStatus()
 
         if (!cancelled) {setStatus(next)}
       } catch {
-        // An older backend has no /api/ninegate. That build predates the lock,
-        // so unlocked is the correct answer rather than an error to surface —
-        // but it IS an answer, so callers stop waiting.
-        cachedLocked = false
-
-        if (!cancelled) {setStatus({ ...UNLOCKED, resolved: true })}
+        if (cancelled) {return}
+        attempt += 1
+        timer = setTimeout(() => void ask(), Math.min(10_000, 400 * 2 ** Math.min(attempt, 5)))
       }
-    })()
+    }
 
-    return () => void (cancelled = true)
+    void ask()
+
+    return () => {
+      cancelled = true
+
+      if (timer) {clearTimeout(timer)}
+    }
   }, [])
 
   return status
