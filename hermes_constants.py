@@ -303,6 +303,26 @@ def get_whatsapp_session_dir(home: Path | None = None) -> Path:
     return get_hermes_dir("platforms/whatsapp/session", "whatsapp/session", home=home)
 
 
+# The port the Node bridge listens on, and the one the adapter talks to.
+#
+# NOT 3000. Upstream Hermes uses 3000, and a customer may reasonably run both
+# this agent and Hermes on one machine — the whole point of separate homes,
+# separate services and separate binaries. Two products defaulting to the same
+# port is not a shared preference, it is a fight: the loser is whichever bridge
+# started first, because starting a bridge frees the port by signalling
+# whatever is listening on it.
+#
+# 3000 is also the single most crowded port on a developer's machine (every
+# Node scaffold in existence), so moving off it costs nothing and avoids a
+# collision that has nothing to do with WhatsApp at all.
+#
+# Overridable per install with `bridge_port` in the platform config; this is
+# only what applies when nobody said otherwise. Keep it in step with the
+# default in scripts/whatsapp-bridge/bridge.js — the two are held together by
+# tests/gateway/test_whatsapp_bridge_port_default.py, the same way the DM
+# policy default is.
+WHATSAPP_BRIDGE_PORT_DEFAULT = 3100
+
 # Written by the bridge when WhatsApp reports DisconnectReason.loggedOut.
 WHATSAPP_LOGGED_OUT_MARKER = "logged-out.json"
 

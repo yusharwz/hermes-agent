@@ -29,6 +29,7 @@ from typing import Dict, Optional, Any
 
 from hermes_cli._subprocess_compat import windows_detach_popen_kwargs
 from hermes_constants import (
+    WHATSAPP_BRIDGE_PORT_DEFAULT,
     WHATSAPP_LOGGED_OUT_MARKER,
     find_node_executable,
     get_whatsapp_session_dir,
@@ -80,8 +81,42 @@ def _listener_pids_on_port(port: int) -> list:
     return pids
 
 
-def _kill_port_process(port: int) -> None:
-    """Kill any process *listening* on the given TCP port (a stale bridge)."""
+class _ForeignBridge(Exception):
+    """A bridge answered on our port, but it is serving another session."""
+
+
+def _process_is_our_bridge(pid: int, session_path: Path) -> bool:
+    """True only if ``pid`` is a node bridge serving *this* session.
+
+    A port number identifies nothing. The bridge for another WhatsApp account,
+    another profile's install, upstream Hermes on its own default port, or an
+    unrelated web server all look identical from outside — and every one of
+    them has at some point been the thing listening where a bridge was about to
+    start. Signalling by port alone made "start my bridge" mean "stop yours".
+
+    The session path is the identity the rest of this adapter already uses: it
+    is what the cross-process lock is keyed on, and it appears in the bridge's
+    own command line because we put it there with --session.
+    """
+    try:
+        from gateway.status import _read_process_cmdline
+        cmdline = _read_process_cmdline(pid)
+    except Exception:
+        return False
+    if not cmdline:
+        # Unreadable means another user's process, or one already gone. Either
+        # way it is not ours to signal.
+        return False
+    return ("node" in cmdline) and (str(session_path) in cmdline)
+
+
+def _kill_port_process(port: int, session_path: Path) -> None:
+    """Kill our own stale bridge if it is the thing holding ``port``.
+
+    Deliberately narrow. An earlier version signalled whatever was listening,
+    which is how starting Atlas could stop a Hermes bridge — or any dev server
+    on the same port — and take its WhatsApp session down with it.
+    """
     try:
         if _IS_WINDOWS:
             from hermes_cli._subprocess_compat import windows_hide_flags
@@ -98,6 +133,18 @@ def _kill_port_process(port: int) -> None:
                     local_addr = parts[1]
                     if local_addr.endswith(f":{port}"):
                         try:
+                            pid = int(parts[4])
+                        except ValueError:
+                            continue
+                        if not _process_is_our_bridge(pid, session_path):
+                            logger.warning(
+                                "[whatsapp] Port %d is held by PID %d, which is not our "
+                                "bridge for %s — leaving it alone. Set bridge_port if "
+                                "this is a clash.",
+                                port, pid, session_path,
+                            )
+                            continue
+                        try:
                             subprocess.run(
                                 ["taskkill", "/PID", parts[4], "/F"],
                                 capture_output=True, timeout=5,
@@ -110,6 +157,13 @@ def _kill_port_process(port: int) -> None:
             # whose connection happens to involve this port number (a browser
             # tab on a local dev server, etc.) must never be killed.
             for pid in _listener_pids_on_port(port):
+                if not _process_is_our_bridge(pid, session_path):
+                    logger.warning(
+                        "[whatsapp] Port %d is held by PID %d, which is not our bridge "
+                        "for %s — leaving it alone. Set bridge_port if this is a clash.",
+                        port, pid, session_path,
+                    )
+                    continue
                 try:
                     os.kill(pid, signal.SIGTERM)
                 except (ProcessLookupError, PermissionError, OSError):
@@ -374,7 +428,7 @@ class WhatsAppAdapter(WhatsAppBehaviorMixin, BasePlatformAdapter):
     
     Configuration:
     - bridge_script: Path to the Node.js bridge script
-    - bridge_port: Port for HTTP communication (default: 3000)
+    - bridge_port: Port for HTTP communication (default: WHATSAPP_BRIDGE_PORT_DEFAULT)
     - session_path: Path to store WhatsApp session data
     - dm_policy: "open" | "allowlist" | "disabled" | "pairing" — how DMs are handled (default: "pairing")
     - allow_from: List of sender IDs allowed in DMs (when dm_policy="allowlist")
@@ -398,7 +452,9 @@ class WhatsAppAdapter(WhatsAppBehaviorMixin, BasePlatformAdapter):
             from gateway.platforms.whatsapp_common import resolve_whatsapp_bridge_dir
             WhatsAppAdapter._DEFAULT_BRIDGE_DIR = resolve_whatsapp_bridge_dir()
         self._bridge_process: Optional[subprocess.Popen] = None
-        self._bridge_port: int = config.extra.get("bridge_port", 3000)
+        self._bridge_port: int = config.extra.get(
+            "bridge_port", WHATSAPP_BRIDGE_PORT_DEFAULT
+        )
         self._bridge_script: Optional[str] = config.extra.get(
             "bridge_script",
             str(self._DEFAULT_BRIDGE_DIR / "bridge.js"),
@@ -606,6 +662,34 @@ class WhatsAppAdapter(WhatsAppBehaviorMixin, BasePlatformAdapter):
                         if resp.status == 200:
                             data = await resp.json()
                             bridge_status = data.get("status", "unknown")
+                            # WHOSE bridge is this?
+                            #
+                            # Answering on our port is not proof it is ours.
+                            # Another install, another profile, or upstream
+                            # Hermes on a colliding default would all answer
+                            # here — and adopting one means this gateway starts
+                            # driving somebody else's WhatsApp account: reading
+                            # their messages, replying as them. The scoped lock
+                            # cannot catch it, because a different session is a
+                            # different lock and both holders think they are
+                            # alone.
+                            #
+                            # The session directory is the identity used
+                            # everywhere else, so it is the one asked for here.
+                            # An older bridge that does not report it is not
+                            # adopted: it predates the check, and the cost of
+                            # restarting our own bridge is a few seconds, while
+                            # the cost of adopting a stranger's is a customer
+                            # messaging strangers from the wrong number.
+                            bridge_session = data.get("session")
+                            if bridge_session != str(self._session_path):
+                                print(
+                                    f"[{self.name}] A bridge is on port "
+                                    f"{self._bridge_port} serving "
+                                    f"{bridge_session or 'an unreported session'}, "
+                                    f"not {self._session_path} — not adopting it"
+                                )
+                                raise _ForeignBridge
                             if bridge_status == "connected":
                                 # Staleness handshake: only reuse a running
                                 # bridge if it is serving the same bridge.js
@@ -640,12 +724,17 @@ class WhatsAppAdapter(WhatsAppBehaviorMixin, BasePlatformAdapter):
                                 print(f"[{self.name}] Running bridge is stale ({stale_reason}), restarting")
                             else:
                                 print(f"[{self.name}] Bridge found but not connected (status: {bridge_status}), restarting")
+            except _ForeignBridge:
+                # Someone else's bridge holds the port. Starting ours is still
+                # the right move; _kill_port_process will decline to evict
+                # theirs, and the bind failure that follows names the port.
+                pass
             except Exception:
                 pass  # Bridge not running, start a new one
             
             # Kill any orphaned bridge from a previous gateway run
             _kill_stale_bridge_by_pidfile(self._session_path)
-            _kill_port_process(self._bridge_port)
+            _kill_port_process(self._bridge_port, self._session_path)
             await asyncio.sleep(1)
             
             # Start the bridge process in its own process group.
@@ -1703,7 +1792,7 @@ async def _standalone_send(
     except ImportError:
         return {"error": "aiohttp not installed. Run: pip install aiohttp"}
     try:
-        bridge_port = extra.get("bridge_port", 3000)
+        bridge_port = extra.get("bridge_port", WHATSAPP_BRIDGE_PORT_DEFAULT)
         normalized_chat_id = to_whatsapp_jid(chat_id)
         media = media_files or []
         text = message or ""

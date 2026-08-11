@@ -96,9 +96,14 @@ class TestKillPortProcess:
 
     Root cause of the live Firefox kills: ``lsof -ti :PORT`` (and ``fuser
     PORT/tcp``) also returned *client* sockets whose connection merely involved
-    the port number. The WhatsApp bridge uses port 3000 by default — a common
+    the port number. The bridge defaulted to port 3000 at the time — a common
     local dev-server port — so a browser tab on ``localhost:3000`` was matched
     and SIGTERMed every time the (crash-looping) bridge restarted.
+
+    The default has since moved off 3000 (see
+    test_whatsapp_bridge_port_default.py) and eviction now checks the listener
+    is our own bridge, but the LISTEN filter stays: it is what keeps a client
+    from being matched at all, whatever port is in use.
     """
 
     def test_listener_lookup_excludes_client_process(self):

@@ -16,7 +16,7 @@
  *   GET  /health         - Health check
  *
  * Usage:
- *   node bridge.js --port 3000 --session ~/.hermes/whatsapp/session
+ *   node bridge.js --port 3100 --session ~/.hermes/whatsapp/session
  */
 
 import { makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, downloadMediaMessage, getAggregateVotesInPollMessage, decryptPollVote, getKeyAuthor, jidNormalizedUser } from '@whiskeysockets/baileys';
@@ -83,7 +83,12 @@ const SEND_READ_RECEIPTS =
   typeof process.env.WHATSAPP_SEND_READ_RECEIPTS === 'string' &&
   ['1', 'true', 'yes', 'on'].includes(process.env.WHATSAPP_SEND_READ_RECEIPTS.toLowerCase());
 
-const PORT = parseInt(getArg('port', '3000'), 10);
+// Keep in step with WHATSAPP_BRIDGE_PORT_DEFAULT in hermes_constants.py —
+// tests/gateway/test_whatsapp_bridge_port_default.py fails if they drift.
+// Not 3000: upstream Hermes uses it, and so does every Node scaffold ever
+// written, and the adapter used to free the port by signalling whatever was
+// listening on it.
+const PORT = parseInt(getArg('port', '3100'), 10);
 const SESSION_DIR = getArg('session', path.join(process.env.HOME || '~', '.hermes', 'whatsapp', 'session'));
 // Cache directories: the Python gateway passes the profile-aware paths via
 // env (HERMES_HOME-aware, new cache/ layout).  Fall back to the legacy
@@ -1217,6 +1222,12 @@ app.get('/health', (req, res) => {
     uptime: process.uptime(),
     scriptHash: SCRIPT_HASH,
     sendReadReceipts: SEND_READ_RECEIPTS,
+    // Which WhatsApp account this bridge is signed in as, by the only name
+    // that is stable: the session directory. The adapter reuses a running
+    // bridge instead of restarting one, and without this it was reusing by
+    // port number alone — so a second install, or upstream Hermes on a
+    // colliding default, could be adopted and driven as if it were ours.
+    session: SESSION_DIR,
   });
 });
 

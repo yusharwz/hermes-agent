@@ -330,9 +330,12 @@ class TestKillPortProcess:
                 return mock_taskkill
             return MagicMock()
 
+        session_path = Path("/tmp/hermes-test/platforms/whatsapp/session")
         with patch("plugins.platforms.whatsapp.adapter._IS_WINDOWS", True), \
+             patch("gateway.status._read_process_cmdline",
+                   return_value=f"node bridge.js --session {session_path}"), \
              patch("plugins.platforms.whatsapp.adapter.subprocess.run", side_effect=run_side_effect) as mock_run:
-            _kill_port_process(3000)
+            _kill_port_process(3000, session_path)
 
         # netstat called
         assert any(
@@ -356,12 +359,15 @@ class TestKillPortProcess:
         from plugins.platforms.whatsapp import adapter as wa
 
         kills = []
+        session_path = Path("/tmp/hermes-test/platforms/whatsapp/session")
         with patch("plugins.platforms.whatsapp.adapter._IS_WINDOWS", False), \
+             patch("gateway.status._read_process_cmdline",
+                   return_value=f"node bridge.js --session {session_path}"), \
              patch("plugins.platforms.whatsapp.adapter._listener_pids_on_port",
                    return_value=[55555]) as mock_listeners, \
              patch("plugins.platforms.whatsapp.adapter.os.kill",
                    side_effect=lambda pid, sig: kills.append((pid, sig))):
-            wa._kill_port_process(3000)
+            wa._kill_port_process(3000, session_path)
 
         mock_listeners.assert_called_once_with(3000)
         assert kills == [(55555, signal.SIGTERM)]
