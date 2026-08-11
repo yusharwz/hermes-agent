@@ -461,11 +461,31 @@ def looks_like_gateway_runtime_command_line(command: str | None) -> bool:
 
 
 def _looks_like_gateway_process(pid: int) -> bool:
-    """Return True when the live PID still looks like the Hermes gateway."""
+    """Return True when the live PID is a gateway runtime holding a lock.
+
+    Both callers are staleness checks, and the question they ask is "may this
+    lock be taken from its holder?" — so the test has to admit every shape the
+    runtime actually runs in, not just the canonical one.
+
+    ``gateway restart`` is the shape that matters. On a host with no service
+    manager the manual restart fallback runs ``run_gateway()`` in that same
+    process, so a perfectly healthy gateway keeps ``gateway restart`` as its
+    argv for its whole life — which the strict matcher rejects. Every scoped
+    lock it held was therefore judged stale and handed to the next process that
+    asked, and for WhatsApp that means two clients on one session: the server
+    removes the first, it reconnects and removes the second, and the two take
+    the device from each other until WhatsApp restricts the number.
+
+    The narrower ``looks_like_gateway_command_line`` stays as it is for the
+    lifecycle decisions it was tightened for; the collision guard these callers
+    want (an unrelated process landing on a recycled pid + start time) is just
+    as well served by the runtime matcher, which still excludes cron and the
+    other gateway management subcommands.
+    """
     cmdline = _read_process_cmdline(pid)
     if not cmdline:
         return False
-    return looks_like_gateway_command_line(cmdline)
+    return looks_like_gateway_runtime_command_line(cmdline)
 
 
 def _record_looks_like_gateway(record: dict[str, Any]) -> bool:

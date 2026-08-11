@@ -2895,6 +2895,58 @@ def cmd_whatsapp(args):
     session_dir = get_whatsapp_session_dir()
     session_dir.mkdir(parents=True, exist_ok=True)
 
+    # Claim the session the same way the gateway's adapter does, through the
+    # same lock and the same identity, before starting a bridge of our own.
+    #
+    # A WhatsApp session is one linked device. A second client connecting with
+    # the same credentials makes the server remove the first, which reconnects
+    # and removes the second, and the two take the device from each other for
+    # as long as both run. WhatsApp reads that as replayed credentials and
+    # temporarily restricts the number — it is not a theoretical race, it cost
+    # a real customer their number for several hours, from exactly this
+    # command being run while the gateway was up.
+    #
+    # The adapter has guarded this since long before now; this command simply
+    # never asked, so the guard had nobody to say no to.
+    from gateway.status import acquire_scoped_lock, release_scoped_lock
+
+    _wa_lock_identity = str(session_dir)
+    _wa_lock_held = False
+    try:
+        _wa_lock_held, _wa_existing = acquire_scoped_lock(
+            "whatsapp-session", _wa_lock_identity, metadata={"platform": "whatsapp"}
+        )
+    except Exception:
+        # A lock we cannot evaluate must not block pairing outright — but it
+        # also must not be reported as held.
+        _wa_lock_held, _wa_existing = True, None
+
+    if not _wa_lock_held:
+        _holder_pid = (_wa_existing or {}).get("pid")
+        print()
+        print("✗ The gateway is already connected to WhatsApp on this machine.")
+        if _holder_pid:
+            print(f"  It is holding this session (PID {_holder_pid}).")
+        print()
+        print("  Pairing now would start a second client on the same session.")
+        print("  WhatsApp removes one device when another takes it, the two")
+        print("  keep taking it back, and the number gets restricted.")
+        print()
+        print("  Stop the gateway first, then run this again:")
+        print("    hermes gateway stop")
+        print("    hermes whatsapp")
+        print()
+        print("  Or pair from the Atlas app, which coordinates the restart for you.")
+        return
+
+    # Released on the way out rather than at one return: this wizard leaves by
+    # a dozen paths, including Ctrl+C at the QR prompt, and a session left
+    # claimed by a process that has exited is a gateway that will not reconnect
+    # until the staleness check happens to notice.
+    import atexit
+
+    atexit.register(release_scoped_lock, "whatsapp-session", _wa_lock_identity)
+
     # Same test the desktop app uses. A session the phone has unlinked still has
     # its credentials on disk, and answering "already paired" for one sent the
     # customer away from the only command that could fix it.
