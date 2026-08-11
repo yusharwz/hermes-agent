@@ -408,7 +408,15 @@ class WhatsAppAdapter(WhatsAppBehaviorMixin, BasePlatformAdapter):
             get_whatsapp_session_dir()
         ))
         self._reply_prefix: Optional[str] = config.extra.get("reply_prefix")
-        self._dm_policy = str(config.extra.get("dm_policy") or os.getenv("WHATSAPP_DM_POLICY", "pairing")).strip().lower()
+        # Defaults to "open", matching scripts/whatsapp-bridge/bridge.js. It
+        # used to default to "pairing" while the bridge defaulted to "open" —
+        # one decision with two answers. The looser one never showed, because
+        # the bridge drops non-allowlisted senders before Python sees them, so
+        # the adapter's default only decided anything for messages the bridge
+        # had already vouched for. The moment an operator set the env var to
+        # "pairing" that guard came off and the disagreement stopped being
+        # academic: every stranger reached the intake and got a pairing code.
+        self._dm_policy = str(config.extra.get("dm_policy") or os.getenv("WHATSAPP_DM_POLICY", "open")).strip().lower()
         self._allow_from = self._coerce_allow_list(config.extra.get("allow_from") or config.extra.get("allowFrom"))
         self._group_policy = str(config.extra.get("group_policy") or os.getenv("WHATSAPP_GROUP_POLICY", "pairing")).strip().lower()
         self._group_allow_from = self._coerce_allow_list(config.extra.get("group_allow_from") or config.extra.get("groupAllowFrom"))

@@ -9073,7 +9073,20 @@ async def apply_whatsapp_onboarding(
     try:
         with _config_profile_scope(effective_profile):
             save_env_value("WHATSAPP_MODE", mode)
-            save_env_value("WHATSAPP_DM_POLICY", "pairing")
+            # An allowlist and a pairing policy are contradictory instructions,
+            # and this wrote the pairing one unconditionally — two lines above
+            # the allowlist it then saved. ``pairing`` makes the bridge forward
+            # *every* unknown sender (it short-circuits the allowlist check),
+            # and the gateway answers each one with a pairing code. On WhatsApp
+            # that is an automated reply to a stranger who never got a human
+            # response, which is the behaviour numbers get restricted for.
+            #
+            # So the allowlist wins when the operator supplied one: they named
+            # who may talk to this bot. Pairing stays available for the
+            # open-bot case, where there is no list to contradict.
+            save_env_value(
+                "WHATSAPP_DM_POLICY", "allowlist" if allowed_users else "pairing"
+            )
             if allowed_users:
                 save_env_value("WHATSAPP_ALLOWED_USERS", allowed_users)
             # Blank means "keep the existing allowlist"; explicit clearing
