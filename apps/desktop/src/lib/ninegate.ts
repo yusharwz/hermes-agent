@@ -79,7 +79,8 @@ type StatusPayload = {
  * would break an unlocked developer build for the first few hundred
  * milliseconds of every boot.
  */
-let cachedLocked: boolean | null = null
+let cachedLocked: boolean | null =
+  typeof window !== 'undefined' && window.hermesDesktop?.lockedBuild === true ? true : null
 
 /** Whether this is a locked NineGate build, for code that cannot use a hook. */
 export function isNineGateLocked(): boolean {
@@ -126,7 +127,22 @@ export async function fetchNineGateStatus(): Promise<NineGateStatus> {
  * request took, which is a real regression for the upstream app.
  */
 export function useNineGate(): NineGateStatus {
-  const [status, setStatus] = useState<NineGateStatus>(UNLOCKED)
+  /**
+   * Seeded from the preload, not from a guess.
+   *
+   * UNLOCKED as the starting point meant every locked build rendered its
+   * removed pages for as long as the backend took to accept a connection, then
+   * hid them — a visible flash of exactly the surfaces the lock exists to
+   * remove. The main process knows from ATLAS_LOCKED before the window is
+   * painted, so the first render is already right.
+   *
+   * `resolved` stays false: the gateway URL, the key and the quota still come
+   * from the backend. Only the one bit that governs what is on screen is known
+   * this early.
+   */
+  const [status, setStatus] = useState<NineGateStatus>(() =>
+    window.hermesDesktop?.lockedBuild ? { ...UNLOCKED, locked: true } : UNLOCKED
+  )
 
   useEffect(() => {
     let cancelled = false

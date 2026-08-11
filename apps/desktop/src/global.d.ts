@@ -13,6 +13,8 @@ export {}
 declare global {
   interface Window {
     hermesDesktop: {
+      /** True on a locked NineGate build. Known before the first paint. */
+      lockedBuild?: boolean
       // Resolve a backend connection. Omit `profile` (or pass the primary) for
       // the window's backend; pass a named profile to lazily spawn/reuse that
       // profile's backend from the pool.

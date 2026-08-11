@@ -30,7 +30,15 @@ type PairingStatus = {
   status: string
   qr_payload: string | null
   expires_at: number | null
-  allowed_users: string[] | null
+  /**
+   * A comma-separated string, not a list.
+   *
+   * The backend normalises it with str(value or ""), so what comes back is
+   * whatever was sent, as text. Typing it as an array made .join() look
+   * available and it is not — "join is not a function" was the whole of the
+   * save failure.
+   */
+  allowed_users: string | null
   account_name: string | null
   account_phone: string | null
   error: string | null
@@ -127,7 +135,7 @@ export function WhatsAppPairing() {
 
     try {
       await window.hermesDesktop.api({
-        body: { allowed_users: (session.allowed_users ?? []).join(',') },
+        body: { allowed_users: session.allowed_users ?? allowed },
         method: 'POST',
         path: `/api/messaging/whatsapp/onboarding/${session.pairing_id}/apply`
       })
