@@ -282,6 +282,30 @@ def _restore(live: Path, backup: Path) -> None:
     backup.rename(live)
 
 
+def _desktop_already_installed(home: Path, desktop_meta: Dict[str, Any]) -> bool:
+    """Whether the exact desktop application in the manifest is already here.
+
+    Read from `installed.json`, which is written only after an install has
+    succeeded end to end — so it records what is on disk, not what was
+    attempted. A missing, unreadable or older marker answers False and the
+    update proceeds as it always did: a needless download costs time, a wrongly
+    skipped one costs the customer an application that never arrives.
+    """
+    try:
+        installed = json.loads((home / "installed.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+
+    if not isinstance(installed, dict):
+        return False
+    previous = (installed.get("desktop") or {}).get(desktop_platform())
+    if not isinstance(previous, dict):
+        return False
+
+    have = str(previous.get("sha256") or "")
+    return bool(have) and have == str(desktop_meta.get("sha256") or "")
+
+
 def run_update(gateway: str, key: str, job: UpdateJob = JOB) -> None:
     """Downloads, verifies, installs, and rolls back on failure."""
     home = atlas_home()
@@ -324,7 +348,19 @@ def run_update(gateway: str, key: str, job: UpdateJob = JOB) -> None:
         )
 
         desktop_archive: Optional[Path] = None
-        if desktop_meta.get("sha256"):
+        if desktop_meta.get("sha256") and _desktop_already_installed(home, desktop_meta):
+            # The desktop application is 117–140 MB and changes far less often
+            # than the agent tree it ships beside — macOS is built on a hosted
+            # runner and Windows on the build box, so a run of agent-only
+            # releases republishes the same bytes each time. Downloading them
+            # again to write the identical file back is the largest single
+            # transfer in an update, and it buys nothing.
+            #
+            # sha256 identity, not version identity: it compares the exact
+            # bytes recorded as installed, so a rebuilt application with the
+            # same version number is still fetched.
+            _log.info("aplikasi desktop sudah versi ini — melewati unduhan")
+        elif desktop_meta.get("sha256"):
             desktop_archive = staging / str(desktop_meta.get("file") or "atlas-desktop")
             job.progress("download", 50, "Mengunduh aplikasi Atlas…")
             download_verified(
