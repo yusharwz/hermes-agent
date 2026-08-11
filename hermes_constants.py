@@ -337,6 +337,31 @@ def whatsapp_session_is_linked(
     return not (session / WHATSAPP_LOGGED_OUT_MARKER).exists()
 
 
+def clear_whatsapp_session(
+    session_dir: Path | None = None,
+    *,
+    home: Path | None = None,
+) -> bool:
+    """Delete a WhatsApp session directory. True when there was one to delete.
+
+    A revoked session is not worth keeping. WhatsApp unlinks a number's devices
+    when it restricts the account, which invalidates these credentials on the
+    server for good — no reconnect brings them back, and the only way forward
+    is a fresh pairing. Keeping the dead files around buys nothing and costs
+    something: every reader that goes by "is there a creds.json" reports the
+    account as linked when it is not.
+
+    Same rule the CLI has always applied before offering a fresh QR code; it
+    lives here so the gateway applies it identically rather than growing its
+    own copy.
+    """
+    session = session_dir if session_dir is not None else get_whatsapp_session_dir(home=home)
+    if not session.exists():
+        return False
+    shutil.rmtree(session, ignore_errors=True)
+    return True
+
+
 def iter_hermes_node_dirs(home: Path | None = None) -> list[Path]:
     """Return Hermes-managed Node.js directories in preferred lookup order.
 

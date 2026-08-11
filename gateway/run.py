@@ -2270,6 +2270,18 @@ from gateway.whatsapp_identity import (
 logger = logging.getLogger(__name__)
 
 
+# Fatal-error codes that mean "a human has not finished setting this up yet",
+# as distinct from "this is configured wrongly". Both are non-retryable —
+# retrying changes nothing without a person — but only the second is a reason
+# to refuse to run. A gateway whose only enabled platform was waiting to be
+# paired used to exit 78 and stay down, taking cron, the dashboard's gateway
+# view, and every other platform with it, at exactly the moment the operator
+# was trying to pair.
+_AWAITING_SETUP_ERROR_CODES = frozenset({
+    "whatsapp_not_paired",
+})
+
+
 _OWN_POLICY_OPEN_ENV = {
     Platform.WECOM: ("WECOM_DM_POLICY", "WECOM_GROUP_POLICY", "WECOM_ALLOW_ALL_USERS"),
     Platform.WEIXIN: ("WEIXIN_DM_POLICY", "WEIXIN_GROUP_POLICY", "WEIXIN_ALLOW_ALL_USERS"),
@@ -10597,6 +10609,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
         enabled_platform_count = 0
         startup_nonretryable_errors: list[str] = []
         startup_retryable_errors: list[str] = []
+        startup_awaiting_setup: list[str] = []
         
         # Initialize and connect each configured platform
         _multiplex_on = bool(getattr(self.config, "multiplex_profiles", False))
@@ -10698,11 +10711,18 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                             error_code=adapter.fatal_error_code,
                             error_message=adapter.fatal_error_message,
                         )
-                        target = (
-                            startup_retryable_errors
-                            if adapter.fatal_error_retryable
-                            else startup_nonretryable_errors
-                        )
+                        if adapter.fatal_error_retryable:
+                            target = startup_retryable_errors
+                        elif adapter.fatal_error_code in _AWAITING_SETUP_ERROR_CODES:
+                            # Not a misconfiguration — an unfinished setup. It
+                            # must not be retried (there is nothing to retry
+                            # against until a human pairs) and it must not bring
+                            # the gateway down either, which is what putting it
+                            # in the non-retryable bucket used to do whenever it
+                            # was the only enabled platform.
+                            target = startup_awaiting_setup
+                        else:
+                            target = startup_nonretryable_errors
                         target.append(
                             f"{platform.value}: {adapter.fatal_error_message}"
                         )
@@ -10815,6 +10835,15 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                     "own it, or disable the platform.",
                     _skipped.value,
                 )
+
+        if startup_awaiting_setup:
+            logger.warning(
+                "Waiting on setup for %d platform(s): %s — the gateway stays up; "
+                "everything else it runs (cron, other platforms, the dashboard) "
+                "is unaffected.",
+                len(startup_awaiting_setup),
+                "; ".join(startup_awaiting_setup),
+            )
 
         if connected_count == 0:
             if startup_nonretryable_errors and not startup_retryable_errors:

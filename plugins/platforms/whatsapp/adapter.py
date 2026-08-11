@@ -709,16 +709,33 @@ class WhatsAppAdapter(WhatsAppBehaviorMixin, BasePlatformAdapter):
                     # generic, this looped on a 5-minute backoff indefinitely
                     # and told the customer only "failed to connect".
                     if (self._session_path / WHATSAPP_LOGGED_OUT_MARKER).exists():
+                        # WhatsApp unlinks every device on a number when it
+                        # restricts the account, so these credentials are dead
+                        # on the server and no reconnect revives them. Keeping
+                        # them served nobody: anything that goes by "is there a
+                        # creds.json" still reported the account as linked, and
+                        # the operator had to clear the directory by hand before
+                        # the QR code they were being told to scan would work.
+                        #
+                        # Clearing it here makes the reported state the honest
+                        # one — not paired — which is something the operator can
+                        # act on, rather than a corpse they must identify first.
+                        from hermes_constants import clear_whatsapp_session
+
+                        clear_whatsapp_session(self._session_path)
                         logger.warning(
                             "[%s] WhatsApp logged out — this device was unlinked "
-                            "from the phone. Re-pair from the dashboard or run "
-                            "`hermes whatsapp`.",
+                            "from the phone, which is what WhatsApp does to every "
+                            "device when it restricts a number. The dead session "
+                            "has been cleared; pair again from the dashboard or "
+                            "run `hermes whatsapp`.",
                             self.name,
                         )
                         self._set_fatal_error(
-                            "whatsapp_logged_out",
-                            "WhatsApp was unlinked from your phone — re-pair from "
-                            "the dashboard or run `hermes whatsapp`.",
+                            "whatsapp_not_paired",
+                            "WhatsApp was unlinked from your phone and the stale "
+                            "session has been cleared — pair again from the "
+                            "dashboard or run `hermes whatsapp`.",
                             retryable=False,
                         )
                         self._close_bridge_log()
