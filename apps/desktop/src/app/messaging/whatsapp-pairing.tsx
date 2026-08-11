@@ -296,15 +296,34 @@ export function WhatsAppPairing() {
           {session.account_phone ? ` · ${session.account_phone}` : ''}
         </p>
 
-        <div className="mt-3 flex gap-2">
+        {/*
+          Disconnect is offered here too, not only on the linked card.
+
+          Pairing reports "scanned" the moment credentials exist on disk —
+          including credentials from a link the phone has already ended. A
+          customer who unlinked from their phone lands on exactly this screen,
+          shown an account that is no longer connected, and every other button
+          takes them in a circle: Cancel returns to the start, the start finds
+          the same stale file, and this screen comes back. Without a way to
+          discard those credentials there is no way out of the loop.
+        */}
+        <div className="mt-3 flex flex-wrap gap-2">
           <Button disabled={busy} onClick={() => void finish()} size="sm">
             {busy ? <Loader2 className="mr-1.5 size-3.5 animate-spin" /> : null}
             Simpan dan aktifkan
           </Button>
-          <Button disabled={busy} onClick={() => void cancel()} size="sm" variant="outline">
+          <Button disabled={busy} onClick={() => void disconnect()} size="sm" variant="outline">
+            Putuskan &amp; pindai ulang
+          </Button>
+          <Button disabled={busy} onClick={() => void cancel()} size="sm" variant="ghost">
             Batal
           </Button>
         </div>
+
+        <p className="mt-2 text-xs text-muted-foreground">
+          Bukan akun ini? Pilih <strong>Putuskan &amp; pindai ulang</strong> untuk membuang sesi lama
+          dan mendapatkan kode QR baru.
+        </p>
 
         {failure ? <p className="mt-3 text-xs text-destructive">{failure}</p> : null}
       </div>
