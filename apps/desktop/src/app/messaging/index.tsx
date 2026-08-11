@@ -559,9 +559,24 @@ function PlatformDetail({
   // fields below are not what a customer needs first — the QR is.
   const isWhatsApp = platform.id === 'whatsapp'
 
-  const requiredFields = platform.env_vars.filter(field => field.required)
-  const optionalFields = platform.env_vars.filter(field => !field.required && !fieldCopy(field, m).advanced)
-  const advancedFields = platform.env_vars.filter(field => !field.required && fieldCopy(field, m).advanced)
+  /**
+   * WhatsApp is configured by scanning, not by editing variables.
+   *
+   * Pairing writes the session, the toggle writes WHATSAPP_ENABLED, and the
+   * bridge mode and DM policy have working defaults that nothing in this
+   * product asks a customer to change. Leaving them on screen offered three
+   * ways to break a connection that had just been set up correctly — one of
+   * them the very flag the toggle owns, with a note telling the reader to
+   * leave it alone.
+   *
+   * The card above is the whole configuration surface now.
+   */
+  const configuredByPairing = platform.id === 'whatsapp'
+  const envFields = configuredByPairing ? [] : platform.env_vars
+
+  const requiredFields = envFields.filter(field => field.required)
+  const optionalFields = envFields.filter(field => !field.required && !fieldCopy(field, m).advanced)
+  const advancedFields = envFields.filter(field => !field.required && fieldCopy(field, m).advanced)
   const hiddenCount = advancedFields.length
 
   return (

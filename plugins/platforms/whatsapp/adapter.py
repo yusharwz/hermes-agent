@@ -510,7 +510,18 @@ class WhatsAppAdapter(WhatsAppBehaviorMixin, BasePlatformAdapter):
             self._set_fatal_error(
                 "whatsapp_not_paired",
                 "WhatsApp enabled but not paired — pair from the dashboard or run `hermes whatsapp`.",
-                retryable=False,
+                # Retryable, because "not paired" is a state the customer is in
+                # the middle of leaving. Marked final, this check ran once at
+                # gateway start, latched, and never looked again: pairing then
+                # succeeded, creds.json appeared, the settings card reported a
+                # live connection — and the platform was still sitting on an
+                # error from before the scan, refusing to start. WhatsApp
+                # looked connected and could not carry a message.
+                #
+                # Nothing is paid for retrying: the bridge bootstrap this
+                # guards is skipped while creds are absent, so a retry that
+                # still finds none costs one file check.
+                retryable=True,
             )
             return False
 
