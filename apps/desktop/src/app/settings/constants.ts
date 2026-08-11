@@ -648,15 +648,21 @@ export const FIELD_DESCRIPTIONS: Record<string, string> = defineFieldCopy({
  * the settings nav, the command palette, and palette field search, or a search
  * for "voice" jumps to a page that redirects away.
  */
-export const LOCKED_HIDDEN_SECTIONS: ReadonlySet<string> = new Set(['model', 'voice'])
+/**
+ * Kept as an empty set on purpose.
+ *
+ * The model and voice sections used to be filtered out at render time. That
+ * left them in the build, so every launch drew them and then removed them —
+ * a visible flash of the exact pages this distribution does not have, worse on
+ * a slow connection. They are deleted from SECTIONS above instead: there is
+ * nothing left to hide, and nothing that can appear before something hides it.
+ *
+ * The set stays so the callers that consult it keep compiling, and so a future
+ * section that genuinely needs hiding rather than deleting has somewhere to go.
+ */
+export const LOCKED_HIDDEN_SECTIONS: ReadonlySet<string> = new Set()
 
 export const SECTIONS: DesktopConfigSection[] = [
-  {
-    id: 'model',
-    label: 'Model',
-    icon: Box,
-    keys: ['model_context_length', 'fallback_providers']
-  },
   {
     id: 'chat',
     label: 'Chat',
@@ -715,54 +721,6 @@ export const SECTIONS: DesktopConfigSection[] = [
       'compression.threshold',
       'compression.target_ratio',
       'compression.protect_last_n'
-    ]
-  },
-  {
-    id: 'voice',
-    label: 'Voice',
-    icon: Mic,
-    keys: [
-      'tts.provider',
-      'stt.enabled',
-      'stt.echo_transcripts',
-      'stt.provider',
-      'voice.auto_tts',
-      'tts.edge.voice',
-      'tts.openai.model',
-      'tts.openai.voice',
-      'tts.elevenlabs.voice_id',
-      'tts.elevenlabs.model_id',
-      'tts.xai.voice_id',
-      'tts.xai.language',
-      'tts.xai.speed',
-      'tts.xai.auto_speech_tags',
-      'tts.xai.optimize_streaming_latency',
-      'tts.xai.sample_rate',
-      'tts.xai.bit_rate',
-      'tts.minimax.model',
-      'tts.minimax.voice_id',
-      'tts.mistral.model',
-      'tts.mistral.voice_id',
-      'tts.gemini.model',
-      'tts.gemini.voice',
-      'tts.neutts.model',
-      'tts.neutts.device',
-      'tts.kittentts.model',
-      'tts.kittentts.voice',
-      'tts.piper.voice',
-      'tts.deepinfra.model',
-      'tts.deepinfra.voice',
-      'stt.local.model',
-      'stt.local.language',
-      'stt.openai.model',
-      'stt.groq.model',
-      'stt.mistral.model',
-      'stt.elevenlabs.model_id',
-      'stt.elevenlabs.language_code',
-      'stt.elevenlabs.tag_audio_events',
-      'stt.elevenlabs.diarize',
-      'voice.record_key',
-      'voice.max_recording_seconds'
     ]
   },
   {
