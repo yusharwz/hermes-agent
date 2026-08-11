@@ -209,7 +209,30 @@ class SimplexAdapter(BasePlatformAdapter):
     # ------------------------------------------------------------------
 
     async def connect(self, *, is_reconnect: bool = False) -> bool:
-        """Connect to the simplex-chat daemon and start the WebSocket listener."""
+        """Take the daemon, then connect.
+
+        The daemon's WebSocket address is the identity: one simplex-chat
+        process holds one chat profile and one message database, and its event
+        stream is delivered to whoever is connected. Two adapters on it both
+        answer, and both write chat commands into the same database. Nothing
+        rejects the second client, so the only symptom is duplicate replies.
+        """
+        lock_identity = self.ws_url
+        if not self._acquire_platform_lock(
+            "simplex-daemon", lock_identity, "SimpleX daemon"
+        ):
+            return False
+        try:
+            connected = await self._connect_locked(is_reconnect=is_reconnect)
+        except Exception:
+            self._release_platform_lock()
+            raise
+        if not connected:
+            self._release_platform_lock()
+        return connected
+
+    async def _connect_locked(self, *, is_reconnect: bool = False) -> bool:
+        """The connect body. Runs with the daemon lock held."""
         try:
             import websockets  # noqa: F401
         except ImportError:
@@ -245,6 +268,7 @@ class SimplexAdapter(BasePlatformAdapter):
     async def disconnect(self) -> None:
         """Stop WebSocket listener and clean up."""
         self._running = False
+        self._release_platform_lock()
 
         if self._ws_task:
             self._ws_task.cancel()

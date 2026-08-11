@@ -549,7 +549,30 @@ class EmailAdapter(BasePlatformAdapter):
             return _connect(ipv4_only=True)
 
     async def connect(self, *, is_reconnect: bool = False) -> bool:
-        """Connect to the IMAP server and start polling for new messages."""
+        """Take the mailbox, then connect.
+
+        The identity is the mailbox, because that is what a second adapter
+        would be duplicating. Two of them sweeping the same folder both see the
+        same UNSEEN message, and both answer it — the sender gets two replies
+        from one assistant, and each adapter marks the mail read underneath the
+        other. Unlike the chat platforms there is no server-side session to
+        steal, so nothing gets disconnected and nothing complains; it simply
+        answers twice, quietly, for as long as both are running.
+        """
+        lock_identity = f"{self._imap_host}:{self._imap_port}|{self._address}"
+        if not self._acquire_platform_lock("email-mailbox", lock_identity, "Email mailbox"):
+            return False
+        try:
+            connected = await self._connect_locked(is_reconnect=is_reconnect)
+        except Exception:
+            self._release_platform_lock()
+            raise
+        if not connected:
+            self._release_platform_lock()
+        return connected
+
+    async def _connect_locked(self, *, is_reconnect: bool = False) -> bool:
+        """The connect body. Runs with the mailbox lock held."""
         # Validate up front so a missing host surfaces as an actionable config
         # error instead of IMAP4_SSL("") raising the cryptic
         # ``[Errno 8] nodename nor servname provided, or not known``.
@@ -619,6 +642,7 @@ class EmailAdapter(BasePlatformAdapter):
     async def disconnect(self) -> None:
         """Stop polling and disconnect."""
         self._running = False
+        self._release_platform_lock()
         if self._poll_task:
             self._poll_task.cancel()
             try:

@@ -284,12 +284,36 @@ class MattermostAdapter(BasePlatformAdapter):
     # ------------------------------------------------------------------
 
     async def connect(self, *, is_reconnect: bool = False) -> bool:
-        """Connect to Mattermost and start the WebSocket listener."""
-        import aiohttp
+        """Take the bot account, then connect.
 
+        The token is the identity: it is one bot account on one server, and
+        Mattermost hands every WebSocket client subscribed to it the same
+        `posted` events. Two adapters therefore both see a message and both
+        reply, which reads to the people in the channel as the assistant
+        stuttering. Mattermost permits concurrent sessions per token, so
+        nothing is disconnected to signal the clash.
+        """
         if not self._base_url or not self._token:
             logger.error("Mattermost: URL or token not configured")
             return False
+
+        lock_identity = f"{self._base_url}|{self._token}"
+        if not self._acquire_platform_lock(
+            "mattermost-session", lock_identity, "Mattermost bot session"
+        ):
+            return False
+        try:
+            connected = await self._connect_locked(is_reconnect=is_reconnect)
+        except Exception:
+            self._release_platform_lock()
+            raise
+        if not connected:
+            self._release_platform_lock()
+        return connected
+
+    async def _connect_locked(self, *, is_reconnect: bool = False) -> bool:
+        """The connect body. Runs with the bot-session lock held."""
+        import aiohttp
 
         self._session = aiohttp.ClientSession(
             timeout=aiohttp.ClientTimeout(total=30)
@@ -320,6 +344,7 @@ class MattermostAdapter(BasePlatformAdapter):
     async def disconnect(self) -> None:
         """Disconnect from Mattermost."""
         self._closing = True
+        self._release_platform_lock()
 
         if self._ws_task and not self._ws_task.done():
             self._ws_task.cancel()
