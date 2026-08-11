@@ -1352,7 +1352,21 @@ class MatrixAdapter(BasePlatformAdapter):
     # ------------------------------------------------------------------
 
     async def connect(self, *, is_reconnect: bool = False) -> bool:
-        """Connect to the Matrix homeserver and start syncing."""
+        """Connect to the Matrix homeserver and start syncing.
+
+        Holds the same cross-process lock every other stateful platform takes.
+        Matrix was missing it, and it is the platform where a second client
+        hurts most: an access token *is* a device, ``/sync`` hands each
+        to-device message to whoever asks first, and the Olm/Megolm keys for
+        encrypted rooms arrive that way. Two adapters on one token means each
+        collects half the room keys and neither can read the traffic the other
+        received — on top of both answering every message, and both writing the
+        same ``crypto.db``.
+
+        The lock is taken before any network call, and released here on every
+        failure, so the body below can keep returning False from wherever it
+        needs to without each exit having to remember.
+        """
         self._device_id_unverified = False
         if self._client is not None:
             try:
@@ -1360,13 +1374,34 @@ class MatrixAdapter(BasePlatformAdapter):
             except Exception as exc:
                 logger.warning("Matrix: error disconnecting before reconnect: %s", exc)
 
-        from mautrix.api import HTTPAPI
-        from mautrix.client import Client
-        from mautrix.client.state_store import MemoryStateStore, MemorySyncStore
-
         if not self._homeserver:
             logger.error("Matrix: homeserver URL not configured")
             return False
+
+        # The credential is the identity: a Matrix access token belongs to
+        # exactly one device. Password logins mint a token per connect, so
+        # those key on the account instead — the thing a second client would
+        # actually be duplicating.
+        lock_identity = self._access_token or f"{self._homeserver}|{self._user_id}"
+        if not self._acquire_platform_lock(
+            "matrix-session", lock_identity, "Matrix session"
+        ):
+            return False
+
+        try:
+            connected = await self._connect_locked(is_reconnect=is_reconnect)
+        except Exception:
+            self._release_platform_lock()
+            raise
+        if not connected:
+            self._release_platform_lock()
+        return connected
+
+    async def _connect_locked(self, *, is_reconnect: bool = False) -> bool:
+        """The connect body. Runs with the platform lock held."""
+        from mautrix.api import HTTPAPI
+        from mautrix.client import Client
+        from mautrix.client.state_store import MemoryStateStore, MemorySyncStore
 
         # Ensure store dir exists for E2EE key persistence.
         _STORE_DIR.mkdir(parents=True, exist_ok=True)
@@ -1774,6 +1809,7 @@ class MatrixAdapter(BasePlatformAdapter):
                 pass
             self._client = None
 
+        self._release_platform_lock()
         logger.info("Matrix: disconnected")
 
     async def send(

@@ -228,10 +228,18 @@ def normalize_reference_images(value: Any) -> Optional[List[str]]:
 
 
 def _images_cache_dir() -> Path:
-    """Return ``$HERMES_HOME/cache/images/``, creating parents as needed."""
-    from hermes_constants import get_hermes_home
+    """Return the image cache directory, creating parents as needed.
 
-    path = get_hermes_home() / "cache" / "images"
+    Resolved through ``get_hermes_dir`` rather than assembled by hand, because
+    an install upgraded from the old layout keeps using ``image_cache/`` and
+    that is what every reader resolves to — including the cleanup pass that
+    prunes old media. Hand-building ``cache/images`` here put generated images
+    somewhere nothing else looked, so on those installs they were never swept
+    and the directory grew without bound.
+    """
+    from hermes_constants import get_hermes_dir
+
+    path = get_hermes_dir("cache/images", "image_cache")
     path.mkdir(parents=True, exist_ok=True)
     return path
 

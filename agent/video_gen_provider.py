@@ -202,10 +202,16 @@ class VideoGenProvider(abc.ABC):
 
 
 def _videos_cache_dir() -> Path:
-    """Return ``$HERMES_HOME/cache/videos/``, creating parents as needed."""
-    from hermes_constants import get_hermes_home
+    """Return the video cache directory, creating parents as needed.
 
-    path = get_hermes_home() / "cache" / "videos"
+    Resolved through ``get_hermes_dir`` for the same reason as the image cache:
+    an upgraded install reads and prunes ``video_cache/``, so writing to
+    ``cache/videos`` by hand left generated video where the cleanup pass never
+    looked.
+    """
+    from hermes_constants import get_hermes_dir
+
+    path = get_hermes_dir("cache/videos", "video_cache")
     path.mkdir(parents=True, exist_ok=True)
     return path
 
