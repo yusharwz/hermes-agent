@@ -800,6 +800,86 @@ def env_write_refusal(key: str) -> str:
     )
 
 
+# ---------------------------------------------------------------------------
+# Correlating a complaint with the gateway's own record of it
+# ---------------------------------------------------------------------------
+
+#: Set by the gateway on every proxied response, assigned before anything can
+#: fail, so a failure carries it just as a success does.
+REQUEST_ID_HEADER = "x-ninegate-request-id"
+
+#: A UUID is 36 characters. The cap is not about our own gateway: this value is
+#: read off the wire and then shown to a person and written to a log, and an
+#: intermediary is free to return a megabyte of whatever it likes.
+_REQUEST_ID_MAX = 64
+
+
+def request_id_from_error(error: BaseException) -> Optional[str]:
+    """The gateway's id for the request that produced *error*, if it said.
+
+    The gateway records every request it serves — outcome, status, error type,
+    latency — against this id, and returns the id in a response header. Until
+    now nothing read it back, so a customer reporting "it failed at about two
+    o'clock" left support grepping a day of logs for a request they could not
+    identify. Reading one header turns that into a lookup.
+
+    Nothing here is NineGate-specific except the header name: an unlocked build
+    talking to some other provider simply never sees it and gets None, which is
+    why this needs no ``ATLAS_LOCKED`` gate.
+
+    The cause chain is walked because SDKs re-raise: the exception that reaches
+    the caller is often a wrapper whose ``__cause__`` holds the response. Depth
+    matches the extractors in ``agent.error_classifier`` that walk it for a
+    status code and a body.
+    """
+    current: Optional[BaseException] = error
+    for _ in range(5):
+        if current is None:
+            break
+        response = getattr(current, "response", None)
+        headers = getattr(response, "headers", None)
+        if headers is not None:
+            value = _header_value(headers, REQUEST_ID_HEADER)
+            if value:
+                return value
+        cause = getattr(current, "__cause__", None) or getattr(current, "__context__", None)
+        if cause is None or cause is current:
+            break
+        current = cause
+    return None
+
+
+def _header_value(headers: object, name: str) -> Optional[str]:
+    """One header, whether the mapping folds case or not.
+
+    ``httpx.Headers`` is case-insensitive, a plain dict is not, and both turn
+    up here depending on which SDK raised and whether the response was
+    synthesised in a test.
+    """
+    getter = getattr(headers, "get", None)
+    raw = None
+    if callable(getter):
+        try:
+            raw = getter(name)
+        except Exception:
+            raw = None
+    if raw is None:
+        try:
+            items = headers.items()  # type: ignore[attr-defined]
+        except Exception:
+            return None
+        for key, value in items:
+            if isinstance(key, str) and key.lower() == name:
+                raw = value
+                break
+    if raw is None:
+        return None
+
+    # Keep it to one printable token: it is going into a message a human reads.
+    text = "".join(ch for ch in str(raw).strip() if ch.isprintable())
+    return text[:_REQUEST_ID_MAX] or None
+
+
 #: Shown when a customer tries to point a locked build somewhere else. It names
 #: the gateway rather than just refusing, because the usual reason someone sees
 #: this is a copied config file from a colleague's unlocked setup, and knowing

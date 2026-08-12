@@ -70,6 +70,12 @@ LEASH_CALLERS = {
     "plugins/image_gen/openai/__init__.py",
     "tools/transcription_tools.py",
     "tools/tts_streaming.py",
+    # Diagnostics rather than enforcement: it reads the gateway's request id off
+    # a failed response so the error a customer quotes can be matched to the
+    # gateway's own log of it. Listed anyway, because this set is "files that
+    # reach for the leash" and an accurate set is what makes the test above
+    # mean anything — and because a merge that drops the id should be seen.
+    "run_agent.py",
 }
 
 

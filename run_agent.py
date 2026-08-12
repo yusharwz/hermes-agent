@@ -2447,6 +2447,28 @@ class AIAgent:
 
     @staticmethod
     def _summarize_api_error(error: Exception) -> str:
+        """A human-readable one-liner for an API error, with its gateway id.
+
+        The id is appended here rather than inside the summary below because
+        that has a return statement per error shape, and the id is orthogonal
+        to every one of them — it identifies the request, not the failure. It
+        is the same move the Cloudflare Ray ID already makes a few lines down,
+        for the same reason: an intermediary's own name for this exact request
+        is what turns a complaint into a lookup.
+        """
+        summary = AIAgent._summarize_api_error_detail(error)
+        try:
+            from agent.ninegate_leash import request_id_from_error
+
+            request_id = request_id_from_error(error)
+        except Exception:
+            request_id = None
+        if request_id:
+            return f"{summary} — NineGate request {request_id}"
+        return summary
+
+    @staticmethod
+    def _summarize_api_error_detail(error: Exception) -> str:
         """Extract a human-readable one-liner from an API error.
 
         Handles Cloudflare HTML error pages (502, 503, etc.) by pulling the
