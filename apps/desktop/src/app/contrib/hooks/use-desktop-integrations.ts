@@ -4,6 +4,7 @@ import { closeActiveTab } from '@/app/chat/close-tab'
 import { openSession } from '@/app/open-session'
 import { storedSessionIdForNotification } from '@/lib/session-ids'
 import { respondToApprovalAction } from '@/store/native-notifications'
+import { stopWatchingNineGateUpdate, watchNineGateUpdate } from '@/store/ninegate-update'
 import { $activeGatewayProfile } from '@/store/profile'
 import { openFolderAsProject } from '@/store/projects'
 import {
@@ -53,6 +54,13 @@ export function useDesktopIntegrations({
   useEffect(() => {
     startUpdatePoller()
 
+    // The Atlas updater's watcher, started here rather than on the About tab.
+    // An update runs detached and keeps running when the window closes, so the
+    // thing that reports on it cannot be a component that unmounts when the
+    // customer switches tabs — that is exactly how the progress bar used to
+    // disappear and the button come back.
+    watchNineGateUpdate()
+
     // The native menu's "check for updates" does not go through any React
     // surface, so removing the UI never reached it. The window it opens
     // describes an upstream update that must not be applied here, so the
@@ -62,6 +70,7 @@ export function useDesktopIntegrations({
     return () => {
       unsubscribe?.()
       stopUpdatePoller()
+      stopWatchingNineGateUpdate()
     }
   }, [])
 

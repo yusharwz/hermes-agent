@@ -6,8 +6,15 @@ import { Button } from '@/components/ui/button'
 import { Codicon } from '@/components/ui/codicon'
 import { useI18n } from '@/i18n'
 import { CheckCircle2, RefreshCw } from '@/lib/icons'
-import { useNineGateUpdate, useUpdateRunner } from '@/lib/ninegate-update'
 import { cn } from '@/lib/utils'
+import {
+  $updateChecking,
+  $updateInfo,
+  $updateProgress,
+  $updateStarting,
+  refreshUpdateInfo,
+  startNineGateUpdate
+} from '@/store/ninegate-update'
 import { $desktopVersion, refreshDesktopVersion } from '@/store/updates'
 
 import { SectionHeading, SettingsContent } from './primitives'
@@ -70,8 +77,13 @@ export function AboutSettings() {
  * leaves a customer sitting on an old build believing they are current.
  */
 function NineGateUpdateCard() {
-  const { check, checking, state } = useNineGateUpdate()
-  const { progress, start, starting } = useUpdateRunner()
+  // Read, not owned. The poller runs at the app shell and the backend holds
+  // the truth, so this card shows the same thing whether it was mounted before
+  // the update started, during it, or after the app was closed and reopened.
+  const state = useStore($updateInfo)
+  const progress = useStore($updateProgress)
+  const checking = useStore($updateChecking)
+  const starting = useStore($updateStarting)
 
   if (!state.resolved) {
     return null
@@ -143,11 +155,15 @@ function NineGateUpdateCard() {
                 </p>
               </>
             ) : progress.ok ? (
+              /* The restart itself is asked for by the modal at the app shell,
+                 which the customer sees wherever they happen to be. This line
+                 is what remains true afterwards, for someone who opens About
+                 later. */
               <p className="text-xs text-emerald-600 dark:text-emerald-400">
                 Selesai. {progress.restartRequired
                   ? progress.installerPath
                     ? 'Tutup Atlas lalu jalankan pemasang yang sudah diunduh untuk menyelesaikan.'
-                    : 'Mulai ulang Atlas untuk memakai versi baru.'
+                    : 'Versi baru aktif setelah Atlas dimulai ulang.'
                   : 'Versi baru sudah aktif.'}
               </p>
             ) : (
@@ -159,12 +175,16 @@ function NineGateUpdateCard() {
         ) : null}
 
         <div className="mt-3 flex flex-wrap items-center gap-3">
+          {/* The button is gone once there is nothing to install, and
+              disabled while something is — an update that is already running
+              answers a second request with 409, and a customer should never be
+              able to ask for that. */}
           {state.updateAvailable && !state.error ? (
-            <Button disabled={busy} onClick={() => void start()} size="sm">
+            <Button disabled={busy} onClick={() => void startNineGateUpdate()} size="sm">
               {busy ? 'Memperbarui…' : 'Perbarui sekarang'}
             </Button>
           ) : null}
-          <Button disabled={checking || busy} onClick={() => void check()} size="sm" variant="outline">
+          <Button disabled={checking || busy} onClick={() => void refreshUpdateInfo()} size="sm" variant="outline">
             {checking ? 'Memeriksa…' : 'Periksa lagi'}
           </Button>
         </div>

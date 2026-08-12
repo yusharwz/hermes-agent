@@ -71,30 +71,135 @@ _CHUNK = 1 << 20
 # ---------------------------------------------------------------------------
 
 
+IDLE_STATE: Dict[str, Any] = {
+    "running": False,
+    "stage": "",
+    "percent": 0,
+    "message": "",
+    "done": False,
+    "ok": False,
+    "error": None,
+    "restart_required": False,
+    "installer_path": None,
+    "version": None,
+    "started_at": None,
+    "finished_at": None,
+    "pid": None,
+    "updated_at": None,
+}
+
+# How long a running job may go without touching the file before it is read as
+# dead. The heartbeat below writes every few seconds regardless of stage, so
+# this is not a guess about how long a stage takes — it is slack for a machine
+# that suspended or a disk that stalled.
+STALE_AFTER = 90.0
+_HEARTBEAT_INTERVAL = 5.0
+
+
+def state_path() -> Path:
+    """Where progress lives, so it is not lost with the process that made it."""
+    return atlas_home() / "update-state.json"
+
+
+def _write_state(state: Dict[str, Any]) -> None:
+    """Atomically, because a reader polling every second will catch a partial
+    write otherwise and report an update as gone."""
+    path = state_path()
+
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(state), encoding="utf-8")
+        os.replace(tmp, path)
+    except Exception:
+        # Progress reporting must never be the thing that fails an update.
+        _log.debug("tidak bisa menulis status pembaruan", exc_info=True)
+
+
+def _process_alive(pid: Optional[int]) -> bool:
+    if not pid:
+        return False
+
+    try:
+        os.kill(int(pid), 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        # Exists, owned by someone else. Not ours to judge.
+        return True
+    except Exception:
+        # Windows, mostly: fall back to the heartbeat, which is why it exists.
+        return True
+
+    return True
+
+
+def read_state() -> Dict[str, Any]:
+    """The current state of the update, whichever process is running it.
+
+    Resolves a job that died mid-flight rather than reporting it as running
+    forever: a progress bar for a process that is gone is worse than an error,
+    because the customer waits instead of retrying.
+    """
+    try:
+        raw = json.loads(state_path().read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return dict(IDLE_STATE)
+    except Exception:
+        _log.debug("status pembaruan tidak terbaca", exc_info=True)
+        return dict(IDLE_STATE)
+
+    state = dict(IDLE_STATE)
+    state.update({key: raw.get(key, state[key]) for key in state})
+
+    if not state["running"]:
+        return state
+
+    beat = state.get("updated_at") or state.get("started_at") or 0
+    fresh = (time.time() - float(beat)) < STALE_AFTER
+    # No pid yet means a claim written by the gateway in the moment between
+    # accepting the request and the runner starting. Freshness is all there is
+    # to go on there, and it is enough: the runner stamps its own pid within a
+    # second, and a spawn that fails writes the failure itself.
+    owned = state.get("pid") is None or _process_alive(state.get("pid"))
+
+    if fresh and owned:
+        return state
+
+    interrupted = dict(state)
+    interrupted.update(
+        {
+            "running": False,
+            "done": True,
+            "ok": False,
+            "error": "Pembaruan terhenti sebelum selesai. Instalasi Anda tidak berubah — coba lagi.",
+            "finished_at": time.time(),
+        }
+    )
+    _write_state(interrupted)
+
+    return interrupted
+
+
 class UpdateJob:
-    """One update, running on a thread, with progress the UI can poll.
+    """One update, with progress written where any process can read it.
 
     Deliberately a singleton in the module below: two concurrent updates
     renaming the same directories would race for the rollback copy, and the
     loser would restore over the winner's work.
+
+    The state used to live only in memory, in the gateway the desktop app
+    spawns and kills on quit. That made the progress bar a property of a
+    settings tab: leave the tab and it was gone, close the app and the update
+    itself died halfway through a tree swap. It is a file now, and the update
+    runs in its own process — see `spawn_detached`.
     """
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        self._state: Dict[str, Any] = {
-            "running": False,
-            "stage": "",
-            "percent": 0,
-            "message": "",
-            "done": False,
-            "ok": False,
-            "error": None,
-            "restart_required": False,
-            "installer_path": None,
-            "version": None,
-            "started_at": None,
-            "finished_at": None,
-        }
+        self._state: Dict[str, Any] = dict(IDLE_STATE)
+        self._beat: Optional[threading.Thread] = None
+        self._stop_beat = threading.Event()
 
     def snapshot(self) -> Dict[str, Any]:
         with self._lock:
@@ -103,34 +208,97 @@ class UpdateJob:
     def _set(self, **fields: Any) -> None:
         with self._lock:
             self._state.update(fields)
+            self._state["updated_at"] = time.time()
+            state = dict(self._state)
+
+        _write_state(state)
 
     def progress(self, stage: str, percent: int, message: str = "") -> None:
         self._set(stage=stage, percent=max(0, min(100, percent)), message=message)
 
+    def _heartbeat(self) -> None:
+        """Touches the file on a timer so liveness never depends on a stage
+        being chatty. The download reports per chunk; extracting a payload or
+        smoke-testing an interpreter can say nothing for a while."""
+        while not self._stop_beat.wait(_HEARTBEAT_INTERVAL):
+            with self._lock:
+                if not self._state["running"]:
+                    return
+
+                self._state["updated_at"] = time.time()
+                state = dict(self._state)
+
+            _write_state(state)
+
     def begin(self) -> bool:
-        """Claims the job. False when one is already running."""
+        """Claims the job for THIS process. False when one is already running.
+
+        A running claim carrying no pid is the gateway holding the place for
+        the runner it just spawned — that one is adopted, not refused.
+        """
+        existing = read_state()
+
+        if existing["running"] and existing.get("pid"):
+            return False
+
         with self._lock:
             if self._state["running"]:
                 return False
+
+            self._state = dict(IDLE_STATE)
             self._state.update(
                 {
                     "running": True,
                     "stage": "starting",
                     "percent": 0,
-                    "message": "",
-                    "done": False,
-                    "ok": False,
-                    "error": None,
-                    "restart_required": False,
-                    "installer_path": None,
-                    "version": None,
                     "started_at": time.time(),
-                    "finished_at": None,
+                    "updated_at": time.time(),
+                    "pid": os.getpid(),
                 }
             )
-            return True
+            state = dict(self._state)
+
+        _write_state(state)
+        self._stop_beat.clear()
+        self._beat = threading.Thread(target=self._heartbeat, name="ninegate-update-beat", daemon=True)
+        self._beat.start()
+
+        return True
+
+    def claim(self) -> bool:
+        """Holds the place for a runner about to be spawned.
+
+        Written before the process exists so the first poll after the request
+        shows an update starting rather than the *previous* run's result — which
+        reads as "already finished" and is how a customer concludes nothing
+        happened. Carries no pid: the runner stamps its own.
+        """
+        if read_state()["running"]:
+            return False
+
+        with self._lock:
+            self._state = dict(IDLE_STATE)
+            self._state.update(
+                {
+                    "running": True,
+                    "stage": "starting",
+                    "message": "Menyiapkan pembaruan…",
+                    "started_at": time.time(),
+                    "updated_at": time.time(),
+                }
+            )
+            state = dict(self._state)
+
+        _write_state(state)
+
+        return True
+
+    def fail_claim(self, error: str) -> None:
+        """Releases a claim whose runner never started."""
+        self._set(running=False, done=True, ok=False, error=error, finished_at=time.time())
 
     def finish(self, *, ok: bool, error: Optional[str] = None, **fields: Any) -> None:
+        self._stop_beat.set()
         self._set(
             running=False,
             done=True,
@@ -565,3 +733,115 @@ def _install_desktop(artifact: Path, home: Path) -> tuple[bool, Optional[str]]:
     backup.unlink(missing_ok=True)
 
     return True, None
+
+
+# ---------------------------------------------------------------------------
+# Running it somewhere that outlives the window
+# ---------------------------------------------------------------------------
+
+
+def _runner_python() -> str:
+    """The interpreter to run the update with.
+
+    `sys.executable` is already running from the tree that is about to be
+    renamed, which is fine on POSIX — the process keeps its inode — and it is
+    the same interpreter the gateway itself is using. The venv is carried
+    across the swap, so the path is valid again on the other side.
+    """
+    import sys
+
+    if sys.executable:
+        return sys.executable
+
+    venv = find_tree_venv(source_dir())
+
+    return str(venv_python_path(venv)) if venv else "python3"
+
+
+def spawn_detached(gateway: str, key: str) -> None:
+    """Starts the update in its own process, outside this one's lifetime.
+
+    WHY NOT A THREAD
+    ================
+    It was a thread in the gateway, and the desktop app spawns that gateway as
+    a child and SIGTERMs it on quit. So closing the window during an update
+    killed the update — not at a safe point, but wherever it had got to, which
+    could be between the rename of the old tree and the restore of the venv.
+    The one operation that must not be interrupted was tied to the lifetime of
+    a window the customer has every reason to close while it runs.
+
+    Detached, the update finishes whatever the app does, and any process that
+    can read `update-state.json` can report on it — which is how the progress
+    bar survives closing and reopening the app.
+    """
+    home = atlas_home()
+    home.mkdir(parents=True, exist_ok=True)
+    logs = home / "logs"
+    logs.mkdir(parents=True, exist_ok=True)
+
+    env = dict(os.environ)
+    # By environment, not argv: a command line is readable by every process on
+    # the machine, and this is a live subscription credential.
+    env["NINEGATE_GATEWAY_URL"] = gateway
+    env["NINEGATE_API_KEY"] = key
+    # `-m` needs the tree on the path, and the cwd below is deliberately not it.
+    env["PYTHONPATH"] = os.pathsep.join(filter(None, [str(source_dir()), env.get("PYTHONPATH", "")]))
+
+    kwargs: Dict[str, Any] = {}
+
+    if os.name == "nt":
+        # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+        kwargs["creationflags"] = 0x00000008 | 0x00000200
+    else:
+        # Its own session, so a signal aimed at the gateway's process group
+        # does not reach it.
+        kwargs["start_new_session"] = True
+
+    with open(logs / "update.log", "ab") as log:
+        subprocess.Popen(
+            [_runner_python(), "-m", "hermes_cli.ninegate_update", "--apply"],
+            # Not the source tree: that directory is renamed mid-update, and a
+            # process whose cwd has been renamed is a bad place to be.
+            cwd=str(home),
+            env=env,
+            stdin=subprocess.DEVNULL,
+            stdout=log,
+            stderr=log,
+            **kwargs,
+        )
+
+
+def main() -> int:
+    """Entry point for the detached runner."""
+    import sys
+
+    if "--apply" not in sys.argv[1:]:
+        print("penggunaan: python -m hermes_cli.ninegate_update --apply", file=sys.stderr)
+
+        return 2
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(message)s",
+    )
+
+    gateway = (os.environ.get("NINEGATE_GATEWAY_URL") or "").strip().rstrip("/")
+    key = (os.environ.get("NINEGATE_API_KEY") or "").strip()
+
+    if not gateway or not key:
+        JOB.fail_claim("Pembaruan tidak bisa dimulai: gateway atau API key tidak tersedia.")
+
+        return 2
+
+    if not JOB.begin():
+        _log.info("pembaruan lain sedang berjalan — keluar")
+
+        return 0
+
+    run_update(gateway, key)
+
+    return 0 if JOB.snapshot().get("ok") else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

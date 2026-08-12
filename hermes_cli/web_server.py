@@ -6971,12 +6971,13 @@ def _desktop_platform_key() -> str:
 async def ninegate_update_apply():
     """Starts an update. Returns immediately; poll the progress endpoint.
 
-    Long-running and destructive, so it is a job rather than a request that
-    blocks: an HTTP timeout partway through an install would leave the caller
-    with no idea whether the swap had happened.
+    The work runs in a DETACHED process, not a thread here. This gateway is a
+    child of the desktop app and is SIGTERMed when the window closes, so a
+    thread would tie the tree swap to the lifetime of a window the customer has
+    every reason to close while it runs. See ninegate_update.spawn_detached.
     """
     from agent import ninegate_leash as _leash
-    from hermes_cli.ninegate_update import JOB, run_update
+    from hermes_cli.ninegate_update import JOB, spawn_detached
 
     if not _leash.is_locked():
         raise HTTPException(status_code=400, detail="Pembaruan ini hanya untuk build NineGate.")
@@ -6985,27 +6986,33 @@ async def ninegate_update_apply():
     if not key:
         raise HTTPException(status_code=400, detail="Belum ada API key langganan.")
 
-    if not JOB.begin():
+    if not JOB.claim():
         # Two updates renaming the same directories would race for the
         # rollback copy, and the loser would restore over the winner's work.
         raise HTTPException(status_code=409, detail="Pembaruan sedang berjalan.")
 
-    threading.Thread(
-        target=run_update,
-        args=(_leash.gateway_url(), key),
-        name="ninegate-update",
-        daemon=True,
-    ).start()
+    try:
+        spawn_detached(_leash.gateway_url(), key)
+    except Exception as exc:
+        # Release the claim with the reason, rather than leaving a progress bar
+        # that never moves until it times out as interrupted.
+        JOB.fail_claim(f"Pembaruan tidak bisa dimulai: {exc}")
+        raise HTTPException(status_code=500, detail="Pembaruan tidak bisa dimulai.") from exc
 
     return {"started": True}
 
 
 @app.get("/api/ninegate/update/progress")
 async def ninegate_update_progress():
-    """Where the running update has got to, or how the last one ended."""
-    from hermes_cli.ninegate_update import JOB
+    """Where the running update has got to, or how the last one ended.
 
-    return JOB.snapshot()
+    Read from disk rather than from memory: the update runs in its own process
+    now, and this gateway may have been restarted — or replaced by the update
+    itself — since it started.
+    """
+    from hermes_cli.ninegate_update import read_state
+
+    return read_state()
 
 
 @app.get("/api/ninegate")

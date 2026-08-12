@@ -144,6 +144,12 @@ declare global {
       setKeepAwake?: (on: boolean) => void
       setPreviewShortcutActive?: (active: boolean) => void
       openExternal: (url: string) => Promise<void>
+      /**
+       * Restart into a version the updater has already put on disk. Pass the
+       * Windows installer path when the update produced one — a running .exe
+       * cannot be replaced, so there the restart is a handover to it.
+       */
+      restartApp: (installerPath?: null | string) => Promise<{ handedOff?: boolean; ok: boolean; relaunched?: boolean }>
       openPreviewInBrowser?: (url: string) => Promise<void>
       fetchLinkTitle: (url: string) => Promise<string>
       sanitizeWorkspaceCwd: (cwd?: null | string) => Promise<{ cwd: string; sanitized: boolean }>

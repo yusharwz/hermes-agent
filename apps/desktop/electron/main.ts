@@ -10671,6 +10671,64 @@ ipcMain.handle('hermes:openExternal', (_event, url) => {
   }
 })
 
+/**
+ * Restart into the version that was just installed.
+ *
+ * The Atlas updater renames a new AppImage / app bundle over the old one while
+ * this process keeps running on the inode it already opened. So the new
+ * version exists on disk and nothing is using it — the app just has to come
+ * back through the new file.
+ *
+ * `app.relaunch()` alone does not do that on Linux: it re-executes
+ * process.execPath, which inside an AppImage is the mount point of the CURRENT
+ * image (/tmp/.mount_Atlas…/AppRun). That path dies with this process, and the
+ * relaunch lands nowhere. APPIMAGE is the real file on disk, which is the one
+ * the updater replaced.
+ *
+ * Windows cannot replace a running .exe at all, so the updater downloads an
+ * installer instead and passes its path here: hand over to it and quit rather
+ * than relaunching into the version we still are.
+ *
+ * `isQuittingForHandoff` is the existing flag for "this quit is a handover, do
+ * not ask the user to confirm it" — the same one the uninstall and the macOS
+ * swap use.
+ */
+ipcMain.handle('hermes:app:restart', async (_event, installerPath) => {
+  const installer = typeof installerPath === 'string' ? installerPath.trim() : ''
+
+  if (installer) {
+    const error = await shell.openPath(installer)
+
+    if (error) {
+      rememberLog(`[updates] could not launch installer ${installer}: ${error}`)
+
+      throw new Error(error)
+    }
+
+    rememberLog(`[updates] handed over to installer ${installer}`)
+    isQuittingForHandoff = true
+    // A beat, so the renderer's "restarting…" state is on screen and the
+    // installer has the foreground before this window disappears.
+    setTimeout(() => app.quit(), 600)
+
+    return { ok: true, handedOff: true }
+  }
+
+  const appImage = process.env.APPIMAGE
+
+  if (appImage) {
+    app.relaunch({ execPath: appImage })
+  } else {
+    app.relaunch()
+  }
+
+  rememberLog(`[updates] relaunching${appImage ? ` via ${appImage}` : ''}`)
+  isQuittingForHandoff = true
+  setTimeout(() => app.exit(0), 600)
+
+  return { ok: true, relaunched: true }
+})
+
 // ── Find-in-page (Ctrl/Cmd+F) ─────────────────────────────────────────────
 // The desktop supports multiple BrowserWindows (one primary plus any
 // per-session secondary windows spawned via `hermes:window:openSession`).

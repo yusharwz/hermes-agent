@@ -23,6 +23,7 @@ import { NotificationStack } from '@/components/notifications'
 import { $newSessionTabAction, registerPaneCloser } from '@/components/pane-shell/tree/store'
 import { FloatingPet } from '@/components/pet/floating-pet'
 import { RemoteDisplayBanner } from '@/components/remote-display-banner'
+import { UpdateRestartModal } from '@/components/update-restart-modal'
 import { emitGatewayEvent } from '@/contrib/events'
 import { getSessionMessages, triggerCronJob } from '@/hermes'
 import { type ChatMessage, chatMessageText, preserveLocalAssistantErrors, toChatMessages } from '@/lib/chat-messages'
@@ -1014,6 +1015,10 @@ export function ContribWiring({ children }: { children: ReactNode }) {
       {/* No provider onboarding: it asks which provider to sign into, a
           question this build has already answered, offering choices that do
           not exist. The NineGate login overlay is the one that belongs here. */}
+      {/* App-shell level, deliberately: an update finishes long after the
+          customer has left Settings, and a completion notice on a tab nobody
+          is looking at is how the same update gets run twice. */}
+      <UpdateRestartModal />
       <ModelPickerOverlay gateway={gateway || undefined} onSelect={selectModel} profile={activeGatewayProfile} />
       <SessionPickerOverlay onResume={sessionId => openSession(sessionId, navigate)} />
       <ModelVisibilityOverlay
