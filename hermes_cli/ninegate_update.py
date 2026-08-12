@@ -58,6 +58,8 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
+from hermes_constants import find_tree_venv, venv_python_path
+
 _log = logging.getLogger(__name__)
 
 _TIMEOUT = 60
@@ -239,6 +241,27 @@ def _extract_tar(archive: Path, into: Path) -> None:
         tar.extractall(into)
 
 
+def _smoke_test_python(tree: Path) -> str:
+    """The interpreter to prove the new tree with.
+
+    The venv inside the tree, when there is one, because that is the
+    interpreter the installation actually runs on: the service unit's
+    ExecStart names it directly, and it is the only one that has the
+    dependencies. Testing anything else answers a question nobody asked —
+    a system python3 that happens to import the tree says nothing about
+    whether the gateway can start.
+
+    `ATLAS_PYTHON` stays the escape hatch for installations that keep their
+    interpreter outside the tree, and a bare python3 is the last resort.
+    """
+    venv = find_tree_venv(tree)
+    if venv is not None:
+        candidate = venv_python_path(venv)
+        if candidate.exists():
+            return str(candidate)
+    return os.environ.get("ATLAS_PYTHON") or shutil.which("python3") or "python3"
+
+
 def _smoke_test(tree: Path) -> None:
     """Proves the new tree can at least be imported before we keep it.
 
@@ -246,7 +269,7 @@ def _smoke_test(tree: Path) -> None:
     but is incomplete. Without it a broken update is discovered by the
     customer, on their next message, with the old version already gone.
     """
-    python = os.environ.get("ATLAS_PYTHON") or shutil.which("python3") or "python3"
+    python = _smoke_test_python(tree)
     result = subprocess.run(
         [python, "-c", "import agent, hermes_cli; print('ok')"],
         cwd=str(tree),
@@ -261,23 +284,73 @@ def _smoke_test(tree: Path) -> None:
         )
 
 
+def _carry_over_venv(source_tree: Path, target_tree: Path) -> Optional[Path]:
+    """Moves the virtual environment from one tree into the other.
+
+    The interpreter an installation runs on lives *inside* the source tree
+    (`<tree>/.venv`) — the service unit's ExecStart, VIRTUAL_ENV and PATH all
+    name that path — but it is build output, not release content, so no
+    tarball we publish contains one. A swap that only renames trees therefore
+    moves the interpreter out from under the running service: the unit's
+    ExecStart no longer exists, and `hermes gateway` cannot start again.
+
+    Nothing downstream caught it. The smoke test passed on a system python3,
+    and passing is what licenses deleting the backup — so the venv went from
+    "set aside" to "gone" on the strength of a check that never looked at it.
+    Recreating one costs a full dependency install the update never budgeted
+    for, over whatever connection the customer has.
+
+    Moved, not copied: the venv is hundreds of megabytes and both trees are
+    on the same filesystem, so a rename is instant and leaves no window in
+    which two trees each hold one.
+    """
+    venv = find_tree_venv(source_tree)
+    if venv is None:
+        return None
+
+    destination = target_tree / venv.name
+    if destination.exists():
+        shutil.rmtree(destination, ignore_errors=True)
+    try:
+        venv.rename(destination)
+    except OSError:
+        # Different filesystems, which the staging directory's placement
+        # inside the home makes unlikely but does not forbid.
+        shutil.move(str(venv), str(destination))
+    return destination
+
+
 def _swap(new: Path, live: Path, backup: Path) -> None:
     """Puts `new` at `live`, keeping whatever was there as `backup`.
 
     Renames, not copies: atomic, instant, and there is never a moment where
     `live` is half of each version.
+
+    The venv travels with the tree rather than being left in the backup —
+    see `_carry_over_venv`. It is moved into `new` *before* `new` becomes
+    `live`, so the installation is never visible without its interpreter.
     """
     if backup.exists():
         shutil.rmtree(backup, ignore_errors=True)
     if live.exists():
         live.rename(backup)
+        _carry_over_venv(backup, new)
     new.rename(live)
 
 
 def _restore(live: Path, backup: Path) -> None:
+    """Puts the previous tree back after a failed update.
+
+    The venv has to make the return trip too. `_swap` moved it into the tree
+    that is about to be deleted here, so restoring without it would roll back
+    onto an installation with no interpreter — the same breakage as the
+    failure being rolled back from, reached by the path meant to be the way
+    out of it.
+    """
     if not backup.exists():
         return
     if live.exists():
+        _carry_over_venv(live, backup)
         shutil.rmtree(live, ignore_errors=True)
     backup.rename(live)
 

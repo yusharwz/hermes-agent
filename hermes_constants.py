@@ -1352,6 +1352,28 @@ AI_GATEWAY_BASE_URL = "https://ai-gateway.vercel.sh/v1"
 
 # ─── Venv layout ─────────────────────────────────────────────────────────────
 
+# The directory names a virtual environment is found under, inside a source
+# tree, in the order they should be preferred. Open-coded as the same literal
+# pair in `hermes_cli.gateway`, `hermes_cli.main` and `hermes_cli.doctor`;
+# named here for the same reason `venv_bin_dir` exists below, so a caller that
+# has to answer "is there a venv in this tree" stops re-deriving the answer.
+VENV_DIR_NAMES: tuple[str, ...] = (".venv", "venv")
+
+
+def find_tree_venv(tree, *, names: tuple[str, ...] = VENV_DIR_NAMES) -> Path | None:
+    """The virtual environment inside *tree*, or None when it has none.
+
+    A source tree is not required to carry one — a system-wide install and the
+    Windows layout both legitimately keep the interpreter elsewhere — so the
+    absence is an answer, not a failure.
+    """
+    for name in names:
+        candidate = Path(tree) / name
+        if candidate.is_dir():
+            return candidate
+    return None
+
+
 def venv_bin_dir(venv_dir, *, windows: bool | None = None) -> Path:
     """Directory holding a venv's executables (``Scripts`` / ``bin``).
 
