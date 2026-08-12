@@ -808,12 +808,12 @@ describe('ToolsetConfigPanel', () => {
         ]
       })
 
-    it('surfaces a sign-in notice when the PUT reports needs_nous_auth', async () => {
-      // Regression (Windows 11 Capabilities journey): the GUI wrote
-      // browser.cloud_provider but skipped the Portal entitlement handshake,
-      // so the managed row silently never activated. The endpoint now
-      // reports needs_nous_auth and the panel must surface a sign-in action
-      // instead of the misleading "provider selected" success toast.
+    it('says the plan does not include it, with no sign-in to offer', async () => {
+      // The endpoint reports needs_nous_auth when the managed row needs a
+      // Portal entitlement. There is no Nous account behind an Atlas
+      // subscription and never will be, so the panel must not offer a
+      // sign-in: a customer would spend a minute on a login screen to arrive
+      // back where they started. What they can act on is their plan.
       const { notify } = await import('@/store/notifications')
 
       getToolsetConfig.mockResolvedValue(nousBrowserConfig())
@@ -835,21 +835,25 @@ describe('ToolsetConfigPanel', () => {
       await waitFor(() =>
         expect(selectToolsetProvider).toHaveBeenCalledWith('browser', 'Nous Subscription (Browser Use cloud)')
       )
-      await waitFor(() =>
-        expect(notify).toHaveBeenCalledWith(
-          expect.objectContaining({
-            kind: 'warning',
-            action: expect.objectContaining({ label: expect.any(String) })
-          })
-        )
-      )
-      // No success toast — the row is not active yet.
+      await waitFor(() => expect(notify).toHaveBeenCalledWith(expect.objectContaining({ kind: 'warning' })))
+
+      const warning = vi
+        .mocked(notify)
+        .mock.calls.map(call => call[0])
+        .find(input => input.kind === 'warning')
+
+      // The message names the plan, and there is no action to click.
+      expect(warning?.message).toContain('paket NineGate')
+      expect(warning?.action).toBeUndefined()
+
+      // No success toast either — the row is not active.
       expect(notify).not.toHaveBeenCalledWith(expect.objectContaining({ kind: 'success' }))
     })
 
-    it('drives the existing Nous OAuth device-code flow from the sign-in action and refetches', async () => {
-      const { notify } = await import('@/store/notifications')
-
+    it('never starts the Nous device-code flow', async () => {
+      // The sign-in action used to drive startOAuthLogin('nous'). Nothing in
+      // this build may reach it: the flow ends at a Portal account the
+      // customer does not have.
       getToolsetConfig.mockResolvedValue(nousBrowserConfig())
       selectToolsetProvider.mockResolvedValue({
         ok: true,
@@ -858,50 +862,16 @@ describe('ToolsetConfigPanel', () => {
         needs_nous_auth: true,
         feature: 'browser'
       })
-      startOAuthLogin.mockResolvedValue({
-        flow: 'device_code',
-        session_id: 'sess-1',
-        user_code: 'NOUS-1234',
-        verification_url: 'https://portal.nousresearch.com/device?user_code=NOUS-1234',
-        poll_interval: 5,
-        expires_in: 600
-      })
-      pollOAuthSession.mockResolvedValue({ session_id: 'sess-1', status: 'approved' })
-      const openSpy = vi.spyOn(window, 'open').mockReturnValue(null)
 
-      try {
-        const { ToolsetConfigPanel } = await import('./toolset-config-panel')
-        render(<ToolsetConfigPanel onConfiguredChange={vi.fn()} toolset="browser" />)
+      const { ToolsetConfigPanel } = await import('./toolset-config-panel')
+      render(<ToolsetConfigPanel onConfiguredChange={vi.fn()} toolset="browser" />)
 
-        await screen.findByRole('button', { name: /Nous Subscription/ })
-        fireEvent.click(await screen.findByRole('button', { name: /Use this backend/ }))
+      await screen.findByRole('button', { name: /Nous Subscription/ })
+      fireEvent.click(await screen.findByRole('button', { name: /Use this backend/ }))
 
-        // Grab the sign-in action off the warning notification and invoke it —
-        // this is the affordance the toast renders as a button.
-        await waitFor(() => expect(notify).toHaveBeenCalledWith(expect.objectContaining({ kind: 'warning' })))
-
-        const warning = vi
-          .mocked(notify)
-          .mock.calls.map(call => call[0])
-          .find(input => input.kind === 'warning')
-
-        expect(warning?.action).toBeTruthy()
-        getToolsetConfig.mockClear()
-        warning!.action!.onClick()
-
-        await waitFor(() => expect(startOAuthLogin).toHaveBeenCalledWith('nous'))
-        expect(openSpy).toHaveBeenCalledWith(
-          'https://portal.nousresearch.com/device?user_code=NOUS-1234',
-          '_blank',
-          'noopener,noreferrer'
-        )
-        // Approved poll → the panel refetches the config so status flips.
-        await waitFor(() => expect(pollOAuthSession).toHaveBeenCalledWith('nous', 'sess-1'), { timeout: 8000 })
-        await waitFor(() => expect(getToolsetConfig).toHaveBeenCalled(), { timeout: 8000 })
-      } finally {
-        openSpy.mockRestore()
-      }
-    }, 20000)
+      await waitFor(() => expect(selectToolsetProvider).toHaveBeenCalled())
+      expect(startOAuthLogin).not.toHaveBeenCalled()
+    })
 
     it('shows the plain success toast when the managed row is already entitled', async () => {
       const { notify } = await import('@/store/notifications')

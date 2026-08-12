@@ -5,14 +5,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { useI18n } from '@/i18n'
-import { useNineGate } from '@/lib/ninegate'
 import { prettyName } from '@/lib/text'
 import { cn } from '@/lib/utils'
 import type { ConfigFieldSchema } from '@/types/hermes'
 
 import { ComboboxInput } from './combobox-input'
 import { CONTROL_TEXT, EMPTY_SELECT_VALUE, FIELD_DESCRIPTIONS, FIELD_LABELS, FREE_INPUT_KEYS } from './constants'
-import { FallbackModelsField } from './fallback-models-field'
 import { fieldCopyForSchemaKey } from './field-copy'
 import { ListRow } from './primitives'
 import { SearchableSelect } from './searchable-select'
@@ -42,7 +40,6 @@ export function ConfigField({
   onChange: (value: unknown) => void
   descriptionExtra?: ReactNode
 }) {
-  const nineGateLocked = useNineGate().locked
   const { t } = useI18n()
   const c = t.settings.config
 
@@ -80,18 +77,15 @@ export function ConfigField({
     <ListRow action={action} description={descriptionNode} title={label} wide={wide} />
   )
 
-  // `fallback_providers` is a list of {provider, model} objects; the generic
-  // `list` branch below would stringify them to "[object Object]". Render the
-  // dedicated structured editor instead.
+  // Atlas has one gateway, so a chain of backup PROVIDERS has nothing to
+  // choose between. Fallback still happens — the gateway's combos try several
+  // models per request — it is just not the customer's to arrange, and an
+  // editor implying otherwise invites them to configure something with no
+  // effect. The field is dropped rather than rendered read-only: the generic
+  // `list` branch below would stringify {provider, model} objects to
+  // "[object Object]".
   if (schemaKey === 'fallback_providers') {
-    // A locked build has one gateway, so a chain of backup PROVIDERS has
-    // nothing to choose between. Fallback still happens — the gateway's combos
-    // try several models per request — it is just not the customer's to
-    // arrange, and an editor implying otherwise invites them to configure
-    // something with no effect.
-    if (nineGateLocked) {return null}
-
-    return row(<FallbackModelsField onChange={onChange} value={value} />, true)
+    return null
   }
 
   if (schema.type === 'boolean') {

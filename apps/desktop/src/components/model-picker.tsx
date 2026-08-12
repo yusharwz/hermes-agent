@@ -5,13 +5,11 @@ import { useI18n } from '@/i18n'
 import { modelOptionsFreshness, modelOptionsQueryKey, requestModelOptions } from '@/lib/model-options'
 import { modelSearchText } from '@/lib/model-search-text'
 import { currentPickerSelection } from '@/lib/model-status-label'
-import { useNineGate } from '@/lib/ninegate'
 import { normalize } from '@/lib/text'
 import type { ModelOptionProvider, ModelPricing } from '@/types/hermes'
 
 import type { HermesGateway } from '../hermes'
 import { cn } from '../lib/utils'
-import { startManualOnboarding } from '../store/onboarding'
 
 import { InlineNotice } from './notifications'
 import { Button } from './ui/button'
@@ -80,19 +78,8 @@ export function ModelPickerDialog({
       : String(modelOptions.error)
     : null
 
-  const nineGateLocked = useNineGate().locked
-
   const selectModel = (provider: ModelOptionProvider, model: string) => {
     onSelect({ provider: provider.slug, model })
-    onOpenChange(false)
-  }
-
-  // Open the full onboarding provider selector to add/switch a provider.
-  // Reuses the entire onboarding flow (OAuth rows, API-key form, device-code,
-  // model-confirm) instead of duplicating provider UI here. Closes the picker
-  // so the onboarding overlay isn't rendered underneath it.
-  const addProvider = () => {
-    startManualOnboarding()
     onOpenChange(false)
   }
 
@@ -124,15 +111,9 @@ export function ModelPickerDialog({
         </Command>
 
         <DialogFooter className="flex-row items-center justify-end gap-2 bg-card p-3">
-          {/* Hidden on a locked build. The onboarding it opens is unmounted
-              there, so the button would look like a button and do nothing —
-              which is worse than not offering it, because the customer then
-              wonders what they did wrong. */}
-          {nineGateLocked ? null : (
-            <Button onClick={addProvider} variant="ghost">
-              {copy.addProvider}
-            </Button>
-          )}
+          {/* No "add provider" button: Atlas serves every model through the
+              one gateway the subscription pays for, and the onboarding this
+              opened is not in this build. */}
           <Button onClick={() => onOpenChange(false)} variant="outline">
             {t.common.cancel}
           </Button>

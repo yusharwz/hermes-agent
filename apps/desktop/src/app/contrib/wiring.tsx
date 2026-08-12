@@ -20,14 +20,12 @@ import { FindBar } from '@/components/find-bar'
 import { GatewayConnectingOverlay } from '@/components/gateway-connecting-overlay'
 import { NineGateLoginOverlay } from '@/components/ninegate-login-overlay'
 import { NotificationStack } from '@/components/notifications'
-import { DesktopOnboardingOverlay } from '@/components/onboarding'
 import { $newSessionTabAction, registerPaneCloser } from '@/components/pane-shell/tree/store'
 import { FloatingPet } from '@/components/pet/floating-pet'
 import { RemoteDisplayBanner } from '@/components/remote-display-banner'
 import { emitGatewayEvent } from '@/contrib/events'
 import { getSessionMessages, triggerCronJob } from '@/hermes'
 import { type ChatMessage, chatMessageText, preserveLocalAssistantErrors, toChatMessages } from '@/lib/chat-messages'
-import { useNineGate } from '@/lib/ninegate'
 import { sessionMessagesSignature } from '@/lib/session-signatures'
 import { isMessagingSource } from '@/lib/session-source'
 import { latestSessionTodos } from '@/lib/todos'
@@ -158,14 +156,6 @@ export function ContribWiring({ children }: { children: ReactNode }) {
   const actionsRef = useRef<WiringActions | null>(null)
 
   const gatewayState = useStore($gatewayState)
-  // Decides whether the provider onboarding below is offered at all.
-  //
-  // Waits for `resolved`: the hook answers "unlocked" until the backend
-  // replies, so mounting on the default would flash the provider chooser for a
-  // frame or two before removing it — which looks exactly like the bug this
-  // gate exists to fix.
-  const nineGate = useNineGate()
-  const showProviderOnboarding = nineGate.resolved && !nineGate.locked
   const activeSessionId = useStore($activeSessionId)
   const billingSettingsRequest = useStore($billingSettingsRequest)
   const currentCwd = useStore($currentCwd)
@@ -179,10 +169,9 @@ export function ContribWiring({ children }: { children: ReactNode }) {
     billingSettingsSeenRef.current = billingSettingsRequest
 
     if (billingSettingsRequest > 0) {
-      // On a locked build the Billing page is gone and ?tab=billing redirects,
-      // so aim straight at the subscription page — where the quota that
-      // triggered this banner is actually shown.
-      navigate(`${SETTINGS_ROUTE}?tab=${nineGate.locked ? 'nineGate' : 'billing'}`)
+      // Straight to the subscription page — where the quota that triggered
+      // this banner is actually shown. There is no Billing page here.
+      navigate(`${SETTINGS_ROUTE}?tab=nineGate`)
     }
   }, [billingSettingsRequest, navigate])
   const freshDraftReady = useStore($freshDraftReady)
@@ -1022,23 +1011,9 @@ export function ContribWiring({ children }: { children: ReactNode }) {
           asks which provider you want, which is a question this build has
           already answered. Renders nothing at all when unlocked. */}
       {!isSecondaryWindow() && <NineGateLoginOverlay enabled={gatewayState === 'open'} />}
-      {/* The provider onboarding is REPLACED on a locked build, not merely
-          preceded by the NineGate login. Adding the login in front of it was
-          not enough: once a key exists the login renders nothing, and this
-          flow then asks which provider to sign into — a question a locked
-          build has already answered, offering choices that do not exist. */}
-      {!isSecondaryWindow() && showProviderOnboarding && (
-        <DesktopOnboardingOverlay
-          enabled={gatewayState === 'open'}
-          onCompleted={() => {
-            void refreshHermesConfig()
-            void refreshCurrentModel()
-            void queryClient.invalidateQueries({ queryKey: ['model-options'] })
-          }}
-          profile={activeGatewayProfile}
-          requestGateway={requestGateway}
-        />
-      )}
+      {/* No provider onboarding: it asks which provider to sign into, a
+          question this build has already answered, offering choices that do
+          not exist. The NineGate login overlay is the one that belongs here. */}
       <ModelPickerOverlay gateway={gateway || undefined} onSelect={selectModel} profile={activeGatewayProfile} />
       <SessionPickerOverlay onResume={sessionId => openSession(sessionId, navigate)} />
       <ModelVisibilityOverlay

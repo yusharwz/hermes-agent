@@ -4,8 +4,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { __resetBackendSkinSync, ingestBackendSkin } from './backend-sync'
 import { ThemeProvider } from './context'
 
-// The live-authoring loop: Hermes writes/edits one skin file and every surface
-// repaints. An in-place edit keeps the NAME — only the palette moves.
+// A skin file the backend announces must not reach the painted theme. The
+// live-authoring loop it used to serve — Hermes writes a skin, every surface
+// repaints — is not part of this build; see themes/backend-sync.ts.
 const bloomberg = (foreground: string) => ({
   name: 'bloomberg',
   colors: { background: '#000000', ui_text: foreground, ui_accent: '#ff8000' }
@@ -21,50 +22,46 @@ describe('ThemeProvider ← backend skin sync', () => {
 
   afterEach(cleanup)
 
-  it('applies an activated backend skin', () => {
+  it('does not paint an activated backend skin', () => {
     render(
       <ThemeProvider>
         <div />
       </ThemeProvider>
     )
 
+    const before = cssVar('--theme-foreground')
     act(() => ingestBackendSkin(bloomberg('#ff9f0a'), { apply: true }))
 
-    expect(cssVar('--theme-foreground')).toBe('#ff9f0a')
-    expect(cssVar('--theme-background-seed')).toBe('#000000')
+    expect(cssVar('--theme-foreground')).toBe(before)
+    expect(cssVar('--theme-foreground')).not.toBe('#ff9f0a')
   })
 
-  it('repaints an in-place edit of the ACTIVE skin (same name, new palette)', () => {
+  it('does not paint an in-place edit of a skin file either', () => {
     render(
       <ThemeProvider>
         <div />
       </ThemeProvider>
     )
 
+    const before = cssVar('--theme-foreground')
     act(() => ingestBackendSkin(bloomberg('#ff9f0a'), { apply: true }))
-    expect(cssVar('--theme-foreground')).toBe('#ff9f0a')
-
-    // Recolor the same skin file. The same-name apply guard correctly no-ops
-    // (protects manual desktop picks), so the repaint must come from the
-    // registry update reaching the active theme derivation.
     act(() => ingestBackendSkin(bloomberg('#ff2d95'), { apply: true }))
-    expect(cssVar('--theme-foreground')).toBe('#ff2d95')
+
+    expect(cssVar('--theme-foreground')).toBe(before)
   })
 
-  it('does not repaint an edit to an INACTIVE skin', () => {
+  it('leaves the painted theme alone when a skin is seeded on reconnect', () => {
     render(
       <ThemeProvider>
         <div />
       </ThemeProvider>
     )
 
-    act(() => ingestBackendSkin(bloomberg('#ff9f0a'), { apply: true }))
-
-    // A different skin registered without apply (e.g. seeded on reconnect)
-    // must not touch the painted theme.
+    const before = cssVar('--theme-foreground')
     act(() =>
       ingestBackendSkin({ name: 'forest', colors: { background: '#001100', ui_text: '#66ff66' } }, { apply: false })
     )
-    expect(cssVar('--theme-foreground')).toBe('#ff9f0a')
+
+    expect(cssVar('--theme-foreground')).toBe(before)
   })
 })

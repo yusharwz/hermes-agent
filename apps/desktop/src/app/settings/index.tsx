@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { useLocation, useNavigate } from 'react-router'
 
 import { Tip } from '@/components/ui/tooltip'
@@ -16,7 +16,6 @@ import {
   Upload,
   Zap
 } from '@/lib/icons'
-import { useNineGate } from '@/lib/ninegate'
 import { notifyError } from '@/store/notifications'
 
 import { useRouteEnumParam } from '../hooks/use-route-enum-param'
@@ -27,37 +26,56 @@ import { SKILLS_ROUTE } from '../routes'
 
 import { AboutSettings } from './about-settings'
 import { AppearanceSettings } from './appearance-settings'
-import { BillingSettings } from './billing'
 import { ConfigSettings } from './config-settings'
-import { LOCKED_HIDDEN_SECTIONS, SECTIONS } from './constants'
-import { GatewaySettings } from './gateway-settings'
+import { SECTIONS } from './constants'
 import { KeybindSettings } from './keybind-settings'
-import { KEYS_VIEWS, KeysSettings, type KeysView } from './keys-settings'
 import { NineGateSettings } from './ninegate-settings'
 import { NotificationsSettings } from './notifications-settings'
 import { PluginsSettings } from './plugins-settings'
-import { PROVIDER_VIEWS, ProvidersSettings, type ProviderView } from './providers-settings'
 import { SessionsSettings } from './sessions-settings'
 import type { SettingsPageProps, SettingsView as SettingsViewId } from './types'
 
+/**
+ * Every view this build has. Billing, Providers, Gateway and Tools & Keys are
+ * absent rather than filtered.
+ *
+ * They used to be listed here and dropped at render time on a backend answer,
+ * which meant the nav drew them before it knew — a flash of the exact pages
+ * Atlas does not have, lasting as long as the backend took to accept a
+ * connection. Hiding is the wrong tool when the answer is never "sometimes":
+ * the provider is fixed, the key belongs to the subscription, a custom
+ * endpoint would be ignored, the gateway is chosen by the installer, and
+ * billing lives in an account on someone else's service.
+ *
+ * An old `?tab=providers` bookmark now names a view that is not in this list,
+ * and useRouteEnumParam coerces an unknown value to the default below. That is
+ * the whole redirect: no effect, nothing to wait for, nowhere to fall through.
+ */
 const SETTINGS_VIEWS: readonly SettingsViewId[] = [
   ...SECTIONS.map(s => `config:${s.id}` as SettingsViewId),
-  'providers',
   'nineGate',
-  'gateway',
   'keybinds',
-  'keys',
   'notifications',
-  'billing',
   'plugins',
   'sessions',
   'about'
 ]
 
+/**
+ * The first item in the nav, and a section that exists.
+ *
+ * It was `config:model` — a page deleted with the Model tab. Opening Settings
+ * therefore landed on a section with no fields, rendering the old model page
+ * for as long as the lock took to resolve, and then jumping elsewhere. The
+ * default has to name something in SETTINGS_VIEWS or it is just a slower way
+ * of arriving somewhere unintended.
+ */
+const DEFAULT_VIEW = 'config:chat' as SettingsViewId
+
 export function SettingsView({ onClose, onConfigSaved, onMainModelChanged }: SettingsPageProps) {
   const { t } = useI18n()
   const navigate = useNavigate()
-  const { hash, pathname, search } = useLocation()
+  const { search } = useLocation()
 
   // MCP moved out of Settings into Capabilities (/skills?tab=mcp). Keep old
   // `/settings?tab=mcp` deep links working — `useRouteEnumParam` would silently
@@ -73,64 +91,7 @@ export function SettingsView({ onClose, onConfigSaved, onMainModelChanged }: Set
     }
   }, [navigate, search])
 
-  const [activeView, setActiveView] = useRouteEnumParam('tab', SETTINGS_VIEWS, 'config:model' as SettingsViewId)
-  // Providers subnav (Accounts vs API keys) lives in its own param so each
-  // sub-view is deep-linkable and survives a refresh.
-  const [providerView, setProviderView] = useRouteEnumParam<ProviderView>('pview', PROVIDER_VIEWS, 'accounts')
-  const [keysView] = useRouteEnumParam<KeysView>('kview', KEYS_VIEWS, 'tools')
-  // Drives what the settings nav is allowed to offer — see lib/ninegate.ts.
-  const nineGate = useNineGate()
-
-  /**
-   * A locked build has no Providers page, but `?tab=providers` is still a
-   * valid enum value — bookmarks, the command palette and older deep links all
-   * still produce it. Left alone it falls through the render chain and lands
-   * on whatever comes next, which was Archived Chats: not an error, just the
-   * wrong page, which is harder to notice and harder to report.
-   *
-   * Redirected once the lock is known. Waiting for `resolved` matters: acting
-   * on the default would bounce an unlocked developer build away from a page
-   * it is entitled to.
-   */
-  useEffect(() => {
-    if (!nineGate.resolved || !nineGate.locked) {return}
-
-    // Every view removed above. A tab that no longer exists must redirect, not
-    // fall through the render chain — that is how ?tab=providers ended up
-    // showing Archived Chats.
-    const removed = new Set(['providers', 'billing', 'gateway', 'keys', 'config:model', 'config:voice'])
-
-    if (removed.has(activeView)) {
-      setActiveView('nineGate')
-    }
-  }, [nineGate.resolved, nineGate.locked, activeView, setActiveView])
-
-  // Jump to a section + its sub-view in one navigate. Two sequential setters
-  // would each read the same stale `search` and the second would clobber the
-  // first's `tab` — so the sub-view never opened on narrow screens.
-  const openSubView = useCallback(
-    (tab: SettingsViewId, param: string, value: string, fallback: string) => {
-      const params = new URLSearchParams(search)
-      params.set('tab', tab)
-
-      if (value === fallback) {
-        params.delete(param)
-      } else {
-        params.set(param, value)
-      }
-
-      const qs = params.toString()
-      navigate({ hash, pathname, search: qs ? `?${qs}` : '' }, { replace: true })
-    },
-    [hash, navigate, pathname, search]
-  )
-
-  const openProviderView = useCallback(
-    (view: ProviderView) => openSubView('providers', 'pview', view, 'accounts'),
-    [openSubView]
-  )
-
-  const openKeysView = useCallback((view: KeysView) => openSubView('keys', 'kview', view, 'tools'), [openSubView])
+  const [activeView, setActiveView] = useRouteEnumParam('tab', SETTINGS_VIEWS, DEFAULT_VIEW)
 
   const importInputRef = useRef<HTMLInputElement | null>(null)
 
@@ -166,19 +127,7 @@ export function SettingsView({ onClose, onConfigSaved, onMainModelChanged }: Set
 
   const navGroups: OverlayNavGroup[] = useMemo(
     () => [
-      /**
-       * Sections a locked build does not own.
-       *
-       * model   — the model is chosen in the composer; everything that was on
-       *           this page (provider, fallback chain) belonged to the
-       *           multi-provider world.
-       * voice   — every TTS/STT backend here wants the customer's own vendor
-       *           key, which is not how a NineGate subscription works.
-       *
-       * Filtered here rather than deleted from SECTIONS so an unlocked
-       * developer build keeps them.
-       */
-      ...SECTIONS.filter(s => !(nineGate.locked && LOCKED_HIDDEN_SECTIONS.has(s.id))).map(s => {
+      ...SECTIONS.map(s => {
         const view = `config:${s.id}` as SettingsViewId
 
         return {
@@ -196,31 +145,16 @@ export function SettingsView({ onClose, onConfigSaved, onMainModelChanged }: Set
         label: t.settings.nav.notifications,
         onSelect: () => setActiveView('notifications')
       },
-      // Billing, Providers, Gateway and Tools & Keys are not in this build.
-      //
-      // They were filtered out here at render time, which left them in the
-      // bundle: the nav drew them and then dropped them, so a customer saw a
-      // flash of the exact pages this distribution does not have — for longer
-      // on a slow connection, because the filter waited on a backend answer.
-      //
-      // Hiding is the wrong tool when the answer is never "sometimes". The
-      // provider is fixed, the key is the subscription's, a custom endpoint
-      // would be ignored, the gateway is chosen by the installer, and billing
-      // belongs to an account on someone else's service. None of them can ever
-      // apply here, so none of them is built.
-      // The one account page a locked build has. Hidden on an unlocked one,
-      // where there is no subscription to show and the provider pages below
-      // are the real thing.
-      ...(nineGate.locked
-        ? [{
-            active: activeView === 'nineGate',
-            gapBefore: true,
-            icon: Zap,
-            id: 'nineGate',
-            label: 'Langganan NineGate',
-            onSelect: () => setActiveView('nineGate')
-          }]
-        : []),
+      // The account page this build does have: the subscription that pays for
+      // every model it can reach.
+      {
+        active: activeView === 'nineGate',
+        gapBefore: true,
+        icon: Zap,
+        id: 'nineGate',
+        label: 'Langganan NineGate',
+        onSelect: () => setActiveView('nineGate')
+      },
       {
         active: activeView === 'keybinds',
         icon: Keyboard,
@@ -251,7 +185,7 @@ export function SettingsView({ onClose, onConfigSaved, onMainModelChanged }: Set
         onSelect: () => setActiveView('about')
       }
     ],
-    [activeView, keysView, providerView, t, setActiveView, openProviderView, openKeysView, nineGate.locked]
+    [activeView, t, setActiveView]
   )
 
   const navFooter = (
@@ -295,8 +229,6 @@ export function SettingsView({ onClose, onConfigSaved, onMainModelChanged }: Set
             <AppearanceSettings />
           ) : activeView === 'about' ? (
             <AboutSettings />
-          ) : activeView === 'gateway' && !nineGate.locked ? (
-            <GatewaySettings />
           ) : activeView === 'keybinds' ? (
             <KeybindSettings />
           ) : activeView.startsWith('config:') ? (
@@ -308,20 +240,8 @@ export function SettingsView({ onClose, onConfigSaved, onMainModelChanged }: Set
             />
           ) : activeView === 'nineGate' ? (
             <NineGateSettings />
-          ) : activeView === 'providers' && !nineGate.locked ? (
-            <ProvidersSettings
-              onClose={onClose}
-              onConfigSaved={onConfigSaved}
-              onMainModelChanged={onMainModelChanged}
-              onViewChange={setProviderView}
-              view={providerView}
-            />
-          ) : activeView === 'keys' && !nineGate.locked ? (
-            <KeysSettings view={keysView} />
           ) : activeView === 'notifications' ? (
             <NotificationsSettings />
-          ) : activeView === 'billing' && !nineGate.locked ? (
-            <BillingSettings />
           ) : activeView === 'plugins' ? (
             <PluginsSettings />
           ) : (

@@ -2,7 +2,6 @@ import { useEffect, useRef } from 'react'
 
 import { closeActiveTab } from '@/app/chat/close-tab'
 import { openSession } from '@/app/open-session'
-import { fetchNineGateStatus } from '@/lib/ninegate'
 import { storedSessionIdForNotification } from '@/lib/session-ids'
 import { respondToApprovalAction } from '@/store/native-notifications'
 import { $activeGatewayProfile } from '@/store/profile'
@@ -16,7 +15,7 @@ import {
   setRememberedSessionId
 } from '@/store/session'
 import { onSessionsChanged } from '@/store/session-sync'
-import { openUpdatesWindow, startUpdatePoller, stopUpdatePoller } from '@/store/updates'
+import { startUpdatePoller, stopUpdatePoller } from '@/store/updates'
 import { isSecondaryWindow } from '@/store/windows'
 
 import { requestComposerFocus, requestComposerInsert } from '../../chat/composer/focus'
@@ -55,16 +54,10 @@ export function useDesktopIntegrations({
     startUpdatePoller()
 
     // The native menu's "check for updates" does not go through any React
-    // surface, so gating the UI never reached it. On a locked build the window
-    // it opens describes an upstream update that must not be applied, so the
+    // surface, so removing the UI never reached it. The window it opens
+    // describes an upstream update that must not be applied here, so the
     // request is answered by doing nothing.
-    const unsubscribe = window.hermesDesktop?.onOpenUpdatesRequested?.(() => {
-      void fetchNineGateStatus()
-        .then(status => {
-          if (!status.locked) {openUpdatesWindow()}
-        })
-        .catch(() => openUpdatesWindow())
-    })
+    const unsubscribe = window.hermesDesktop?.onOpenUpdatesRequested?.(() => {})
 
     return () => {
       unsubscribe?.()

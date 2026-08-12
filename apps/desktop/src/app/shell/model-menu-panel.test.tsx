@@ -28,13 +28,13 @@ vi.mock('@/hermes', () => ({
 const MOA_PROVIDER = { models: ['default', 'BeastMode'], name: 'Mixture of Agents', slug: 'moa' }
 
 const DEEPSEEK_PROVIDER = {
-  models: ['deepseek-v4-pro', 'deepseek-chat', 'deepseek-reasoner'],
+  models: ['deepseek/deepseek-v4-pro', 'deepseek/deepseek-chat', 'deepseek/deepseek-reasoner'],
   name: 'DeepSeek',
   slug: 'deepseek'
 }
 
 const GOOGLE_PROVIDER = {
-  models: ['gemini-3.1-pro', 'gemini-2.5-flash', 'gemini-2.5-pro'],
+  models: ['google/gemini-3.1-pro', 'google/gemini-2.5-flash', 'google/gemini-2.5-pro'],
   name: 'Google',
   slug: 'google'
 }
@@ -127,9 +127,9 @@ describe('ModelMenuPanel MoA presets', () => {
 describe('ModelMenuPanel current selection', () => {
   it('keeps the checkmark on the live SessionView model when a stale options response disagrees', async () => {
     $currentProvider.set('google')
-    $currentModel.set('gemini-3.1-pro')
+    $currentModel.set('google/gemini-3.1-pro')
     getGlobalModelOptions.mockResolvedValue({
-      model: 'deepseek-chat',
+      model: 'deepseek/deepseek-chat',
       provider: 'deepseek',
       providers: MOCK_PROVIDERS
     })
@@ -156,7 +156,7 @@ describe('ModelMenuPanel search', () => {
 
   it('hides the non-matching current model while a query is active', async () => {
     $currentProvider.set('deepseek')
-    $currentModel.set('deepseek-v4-pro')
+    $currentModel.set('deepseek/deepseek-v4-pro')
     const { content } = renderPanel()
 
     await content.findByText(/Deepseek V4 Pro/i)
@@ -187,7 +187,7 @@ describe('ModelMenuPanel search', () => {
     // First matching family of the first (alphabetical) matching provider.
     await vi.waitFor(() => {
       expect(onSelectModel).toHaveBeenCalledWith({
-        model: 'gemini-3.1-pro',
+        model: 'google/gemini-3.1-pro',
         provider: 'google',
         sessionId: 'runtime-1'
       })
@@ -224,7 +224,7 @@ describe('ModelMenuPanel search', () => {
 
     await vi.waitFor(() => {
       expect(onSelectModel).toHaveBeenCalledWith({
-        model: 'gemini-2.5-flash',
+        model: 'google/gemini-2.5-flash',
         provider: 'google',
         sessionId: 'runtime-1'
       })
@@ -233,7 +233,7 @@ describe('ModelMenuPanel search', () => {
 
   it('with no query the selection sits on the current model, so Enter closes without switching', async () => {
     $currentProvider.set('google')
-    $currentModel.set('gemini-3.1-pro')
+    $currentModel.set('google/gemini-3.1-pro')
     const { content, onSelectModel } = renderPanel()
 
     await content.findByText('DeepSeek')
@@ -302,7 +302,7 @@ describe('ModelMenuPanel provider collapse', () => {
 
   it('collapses the active provider too (no forced auto-expand)', async () => {
     $currentProvider.set('deepseek')
-    $currentModel.set('deepseek-v4-pro')
+    $currentModel.set('deepseek/deepseek-v4-pro')
     const { content } = renderPanel()
 
     const header = await content.findByText('DeepSeek')

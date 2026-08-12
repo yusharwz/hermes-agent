@@ -19,7 +19,6 @@ import {
 } from '@/hermes'
 import { useI18n } from '@/i18n'
 import { Check, Loader2, Save, Terminal } from '@/lib/icons'
-import { useNineGate } from '@/lib/ninegate'
 import { cn } from '@/lib/utils'
 import { upsertDesktopActionTask } from '@/store/activity'
 import { notify, notifyError } from '@/store/notifications'
@@ -488,7 +487,6 @@ function ModelCatalogPicker({ toolset, providerName, isActiveBackend }: ModelCat
 }
 
 export function ToolsetConfigPanel({ toolset, onConfiguredChange }: ToolsetConfigPanelProps) {
-  const nineGateLocked = useNineGate().locked
   const { t } = useI18n()
   const copy = t.settings.toolsets
   const [cfg, setCfg] = useState<ToolsetConfig | null>(null)
@@ -589,26 +587,15 @@ export function ToolsetConfigPanel({ toolset, onConfiguredChange }: ToolsetConfi
           : current
       )
 
-      if (result.needs_nous_auth && nineGateLocked) {
-        // A locked build has no Nous account and never will, so offering a
-        // sign-in that cannot succeed is worse than saying no: the customer
-        // spends a minute on a login screen to arrive back where they started.
-        // What they can act on is their plan.
+      if (result.needs_nous_auth) {
+        // Atlas has no Nous account and never will, so offering the sign-in
+        // that used to live here is worse than saying no: the customer spends
+        // a minute on a login screen to arrive back where they started. What
+        // they can act on is their plan.
         notify({
           kind: 'warning',
           title: copy.nousAuthNeededTitle,
           message: `${provider.name} tidak termasuk paket NineGate Anda.`
-        })
-      } else if (result.needs_nous_auth) {
-        // Managed Nous row selected without Portal entitlement: the config
-        // keys are written but the backend won't activate until the user
-        // signs in (the CLI runs this gate inline; the GUI surfaces it as a
-        // sign-in action). Reuses the existing Nous Portal device-code flow.
-        notify({
-          kind: 'warning',
-          title: copy.nousAuthNeededTitle,
-          message: copy.nousAuthNeededMessage(provider.name),
-          action: { label: copy.nousAuthSignIn, onClick: () => void signInToNousPortal() }
         })
 
         return
@@ -849,7 +836,7 @@ export function ToolsetConfigPanel({ toolset, onConfiguredChange }: ToolsetConfi
                   <p className="text-[0.72rem] text-muted-foreground">
                     {/* "Included with a Nous subscription" is not true here and
                         names a company the customer has no relationship with. */}
-                    {nineGateLocked ? 'Ketersediaan mengikuti paket NineGate Anda.' : copy.nousIncluded}
+                    Ketersediaan mengikuti paket NineGate Anda.
                   </p>
                 )}
                 {provider.env_vars.length === 0 ? (

@@ -1,76 +1,24 @@
 import { useStore } from '@nanostores/react'
-import { useQuery } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 
 import { LanguageSwitcher } from '@/components/language-switcher'
 import { Button } from '@/components/ui/button'
 import { SegmentedControl } from '@/components/ui/segmented-control'
-import type { DesktopMarketplaceSearchItem } from '@/global'
 import { useI18n } from '@/i18n'
 import { triggerHaptic } from '@/lib/haptics'
-import { Check, Download, Loader2, Palette, Trash2 } from '@/lib/icons'
-import { useNineGate } from '@/lib/ninegate'
-import { selectableCardClass } from '@/lib/selectable-card'
-import { normalize } from '@/lib/text'
-import { cn } from '@/lib/utils'
+import { Palette } from '@/lib/icons'
 import { $backdrop, setBackdrop } from '@/store/backdrop'
 import { $embedAllowed, $embedMode, clearEmbedAllowed, type EmbedMode, setEmbedMode } from '@/store/embed-consent'
-import { $activeGatewayProfile, $profiles, normalizeProfileKey } from '@/store/profile'
 import { $reactionsEnabled, setReactionsEnabled } from '@/store/reactions-enabled'
 import { $toolViewMode, setToolViewMode } from '@/store/tool-view'
 import { $translucency, setTranslucency } from '@/store/translucency'
 import { $zoomPercent, setZoomPercent } from '@/store/zoom'
-import { getBaseColors, useTheme } from '@/themes/context'
-import { installVscodeThemeFromMarketplace } from '@/themes/install'
-import type { DesktopTheme } from '@/themes/types'
-import { $marketplaceInstalls, isUserTheme, removeUserTheme } from '@/themes/user-themes'
+import { useTheme } from '@/themes/context'
 
 import { MODE_OPTIONS } from './constants'
 import { PetSettings } from './pet-settings'
 import { ListRow, SectionHeading, SettingsContent } from './primitives'
 
-function ThemePreview({ name, mode }: { name: string; mode: 'light' | 'dark' }) {
-  // Preview in the *current* mode: the dark palette in Dark, and the light
-  // palette in Light — synthesizing one for dark-only themes — so every card
-  // tracks the Light/Dark toggle, exactly like the app itself does.
-  const c = getBaseColors(name, mode)
-
-  return (
-    <div
-      className="h-20 overflow-hidden rounded-xl border shadow-xs"
-      style={{ backgroundColor: c.background, borderColor: c.border }}
-    >
-      <div className="flex h-full">
-        <div
-          className="w-12 border-r"
-          style={{
-            backgroundColor: c.sidebarBackground ?? c.muted,
-            borderColor: c.sidebarBorder ?? c.border
-          }}
-        />
-        <div className="flex flex-1 flex-col gap-2 p-3">
-          <div className="h-2.5 w-16 rounded-full" style={{ backgroundColor: c.foreground }} />
-          <div className="h-2 w-24 rounded-full" style={{ backgroundColor: c.mutedForeground }} />
-          <div className="mt-auto flex justify-end">
-            <div
-              className="h-5 w-16 rounded-full border"
-              style={{
-                backgroundColor: c.userBubble ?? c.muted,
-                borderColor: c.userBubbleBorder ?? c.border
-              }}
-            />
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// UI scale presets, as zoom percentages. 100 is Chromium's actual-size
-// baseline; the shipped default is the 90% preset. Ids double as the percent
-// values sent to the main process. A Cmd/Ctrl +/- step landing between
-// presets highlights nothing, and the row description keeps showing the
-// exact current percent.
 const UI_SCALE_PRESETS = ['90', '100', '110', '125', '150', '175'] as const
 
 type UiScalePreset = (typeof UI_SCALE_PRESETS)[number]
@@ -93,161 +41,9 @@ function useDebounced<T>(value: T, delayMs: number): T {
 
 const compactNumber = new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 })
 
-/**
- * Live VS Code Marketplace theme search (the same backend as the Cmd-K "Install
- * theme…" page). Renders below the local grid when there's a query: each row
- * downloads + converts + installs via `installVscodeThemeFromMarketplace` and
- * activates it. Extensions already imported locally are marked installed.
- */
-function MarketplaceThemeResults({
-  query,
-  installs,
-  onInstalled
-}: {
-  query: string
-  installs: ReadonlyMap<string, DesktopTheme>
-  onInstalled: (name: string) => void
-}) {
-  const { t } = useI18n()
-  const copy = t.commandCenter.installTheme
-  const debounced = useDebounced(query.trim(), 300)
-  const [installingId, setInstallingId] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
-
-  const search = useQuery({
-    enabled: debounced.length > 0,
-    queryFn: () => window.hermesDesktop?.themes?.searchMarketplace(debounced) ?? Promise.resolve([]),
-    queryKey: ['marketplace-themes-settings', debounced],
-    staleTime: 5 * 60 * 1000
-  })
-
-  // Already installed → just re-activate it; never re-download what we have.
-  const select = (item: DesktopMarketplaceSearchItem) => {
-    const owned = installs.get(item.extensionId)
-
-    if (owned) {
-      triggerHaptic('crisp')
-      onInstalled(owned.name)
-
-      return
-    }
-
-    void install(item)
-  }
-
-  const install = async (item: DesktopMarketplaceSearchItem) => {
-    if (installingId) {
-      return
-    }
-
-    setInstallingId(item.extensionId)
-    setError(null)
-
-    try {
-      const theme = await installVscodeThemeFromMarketplace(item.extensionId)
-
-      triggerHaptic('crisp')
-      onInstalled(theme.name)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : copy.error)
-    } finally {
-      setInstallingId(null)
-    }
-  }
-
-  if (!debounced) {
-    return null
-  }
-
-  const header = (
-    <p className="mb-2 mt-4 text-[length:var(--conversation-caption-font-size)] font-medium text-(--ui-text-tertiary)">
-      From the VS Code Marketplace
-    </p>
-  )
-
-  if (search.isLoading) {
-    return (
-      <>
-        {header}
-        <p className="flex items-center gap-2 text-[length:var(--conversation-caption-font-size)] text-(--ui-text-tertiary)">
-          <Loader2 className="size-3.5 animate-spin" />
-          {copy.loading}
-        </p>
-      </>
-    )
-  }
-
-  if (search.isError) {
-    return (
-      <>
-        {header}
-        <p className="text-[length:var(--conversation-caption-font-size)] text-(--ui-red)">{copy.error}</p>
-      </>
-    )
-  }
-
-  const results = search.data ?? []
-
-  if (results.length === 0) {
-    return (
-      <>
-        {header}
-        <p className="text-[length:var(--conversation-caption-font-size)] text-(--ui-text-tertiary)">{copy.empty}</p>
-      </>
-    )
-  }
-
-  return (
-    <>
-      {header}
-      {error && <p className="mb-2 text-[length:var(--conversation-caption-font-size)] text-(--ui-red)">{error}</p>}
-      <div className="grid gap-2 sm:grid-cols-2">
-        {results.map(item => {
-          const busy = installingId === item.extensionId
-          const done = installs.has(item.extensionId)
-
-          return (
-            <button
-              className={cn(
-                'flex items-center gap-2.5 px-2.5 py-2 text-left disabled:opacity-60',
-                selectableCardClass({ prominent: done })
-              )}
-              disabled={Boolean(installingId) && !busy}
-              key={item.extensionId}
-              onClick={() => select(item)}
-              type="button"
-            >
-              <Palette className="size-4 shrink-0 text-(--ui-text-tertiary)" />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-[length:var(--conversation-text-font-size)] font-medium">
-                  {item.displayName}
-                </span>
-                <span className="block truncate text-[length:var(--conversation-caption-font-size)] text-(--ui-text-tertiary)">
-                  {item.publisher}
-                  {item.installs > 0 ? ` · ${copy.installs(compactNumber.format(item.installs))}` : ''}
-                </span>
-              </span>
-              <span className="shrink-0 text-(--ui-text-tertiary)">
-                {busy ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : done ? (
-                  <Check className="size-4 text-(--ui-green)" />
-                ) : (
-                  <Download className="size-4" />
-                )}
-              </span>
-            </button>
-          )
-        })}
-      </div>
-    </>
-  )
-}
-
 export function AppearanceSettings() {
   const { t, isSavingLocale } = useI18n()
-  const { themeName, mode, resolvedMode, availableThemes, setTheme, setMode } = useTheme()
-  const nineGateLocked = useNineGate().locked
+  const { mode, setMode } = useTheme()
   const toolViewMode = useStore($toolViewMode)
   const zoomPercent = useStore($zoomPercent)
   const embedMode = useStore($embedMode)
@@ -255,35 +51,8 @@ export function AppearanceSettings() {
   const translucency = useStore($translucency)
   const reactionsEnabled = useStore($reactionsEnabled)
   const backdrop = useStore($backdrop)
-  const installs = useStore($marketplaceInstalls)
-  const profiles = useStore($profiles)
-  const activeProfileKey = normalizeProfileKey(useStore($activeGatewayProfile))
   const a = t.settings.appearance
 
-  const [query, setQuery] = useState('')
-
-  // One box does double duty: filter installed themes live (below), and run a
-  // name search against the VS Code Marketplace (the Cmd-K "Install theme…"
-  // backend) for anything not already installed.
-  const needle = normalize(query)
-
-  const filteredThemes = availableThemes
-    .filter(
-      theme =>
-        !needle ||
-        theme.label.toLowerCase().includes(needle) ||
-        theme.name.toLowerCase().includes(needle) ||
-        theme.description.toLowerCase().includes(needle)
-    )
-    // Active theme first; stable sort keeps the rest in their original order.
-    .sort((a, b) => Number(b.name === themeName) - Number(a.name === themeName))
-
-  // Themes save per profile. Surface that only when the user actually has more
-  // than one profile (single-profile installs never see the distinction).
-  const showProfileNote = profiles.length > 1
-
-  const activeProfileName =
-    profiles.find(profile => normalizeProfileKey(profile.name) === activeProfileKey)?.name ?? activeProfileKey
 
   const modeOptions = MODE_OPTIONS.map(({ id, icon }) => ({ icon, id, label: t.settings.modeOptions[id].label }))
 
@@ -318,104 +87,20 @@ export function AppearanceSettings() {
           />
 
           {/*
-            The skin chooser — installed-theme grid, marketplace search, and
-            remove buttons.
+            Light or dark, and nothing else.
 
-            Atlas ships a single skin, so on a locked build there is nothing to
-            choose between and the whole apparatus comes out: no grid, no
-            search box, and no VS Code Marketplace results, which would install
-            palettes the app has deliberately stopped carrying. The light/dark
-            control below stays — that is a real choice, and the only one.
+            Atlas ships a single skin, so the chooser that went here — the
+            installed-theme grid, the search box, the VS Code Marketplace
+            results and the remove buttons — has nothing to choose between.
+            It used to be rendered and then hidden on a backend answer, which
+            meant a customer saw a marketplace for palettes this build does
+            not carry, until the answer arrived. It is not built now.
           */}
           <ListRow
-            below={
-              nineGateLocked ? null : (
-              <>
-                {/* One search box: filters your installed themes (the grid)
-                    and live-searches the VS Code Marketplace below. */}
-                <div className="mt-3">
-                  <input
-                    className="w-full rounded-lg border border-(--ui-stroke-tertiary) bg-(--ui-bg-quinary) px-3 py-1.5 text-[length:var(--conversation-caption-font-size)] outline-none placeholder:text-(--ui-text-tertiary) focus:border-(--ui-stroke-secondary)"
-                    onChange={event => setQuery(event.target.value)}
-                    placeholder="Search your themes or the VS Code Marketplace…"
-                    spellCheck={false}
-                    value={query}
-                  />
-                </div>
-
-                {/* Fixed-height scroll area so the (growing) theme list never
-                    runs the page long; the grid scrolls inside it. */}
-                <div className="mt-3 max-h-96 overflow-y-auto pr-1">
-                  {filteredThemes.length === 0 ? (
-                    needle ? (
-                      <p className="text-[length:var(--conversation-caption-font-size)] text-(--ui-text-tertiary)">
-                        No installed themes match "{query.trim()}".
-                      </p>
-                    ) : null
-                  ) : (
-                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                      {filteredThemes.map(theme => {
-                        const active = themeName === theme.name
-                        const removable = isUserTheme(theme.name)
-
-                        return (
-                          <div className="group relative" key={theme.name}>
-                            <button
-                              className={cn('w-full p-2 text-left', selectableCardClass({ active, prominent: true }))}
-                              onClick={() => {
-                                triggerHaptic('crisp')
-                                setTheme(theme.name)
-                              }}
-                              type="button"
-                            >
-                              <ThemePreview mode={resolvedMode} name={theme.name} />
-                              <div className="mt-3 px-1">
-                                <div className="truncate text-[length:var(--conversation-text-font-size)] font-medium">
-                                  {theme.label}
-                                </div>
-                                <div className="mt-0.5 line-clamp-2 text-[length:var(--conversation-caption-font-size)] leading-(--conversation-caption-line-height) text-(--ui-text-tertiary)">
-                                  {theme.description}
-                                </div>
-                              </div>
-                            </button>
-                            {removable && (
-                              <button
-                                aria-label={a.removeTheme}
-                                className="absolute right-1.5 top-1.5 grid size-6 place-items-center rounded-md bg-(--ui-bg-elevated)/80 text-(--ui-text-tertiary) opacity-0 backdrop-blur-sm transition hover:text-(--ui-red) focus-visible:opacity-100 group-hover:opacity-100"
-                                onClick={() => {
-                                  triggerHaptic('crisp')
-                                  removeUserTheme(theme.name)
-
-                                  // Re-normalize off the now-missing skin → default.
-                                  if (active) {
-                                    setTheme(theme.name)
-                                  }
-                                }}
-                                title={a.removeTheme}
-                                type="button"
-                              >
-                                <Trash2 className="size-3.5" />
-                              </button>
-                            )}
-                          </div>
-                        )
-                      })}
-                    </div>
-                  )}
-                  <MarketplaceThemeResults installs={installs} onInstalled={name => setTheme(name)} query={query} />
-                </div>
-                {showProfileNote && (
-                  <p className="mt-3 text-[length:var(--conversation-caption-font-size)] leading-(--conversation-caption-line-height) text-(--ui-text-tertiary)">
-                    {a.themeProfileNote(activeProfileName)}
-                  </p>
-                )}
-              </>
-              )
-            }
-            description={nineGateLocked ? a.modeDesc : a.themeDesc}
+            description={a.modeDesc}
             title={
               <div className="flex items-center justify-between gap-3">
-                <span>{nineGateLocked ? a.modeTitle : a.themeTitle}</span>
+                <span>{a.modeTitle}</span>
                 <SegmentedControl
                   onChange={id => {
                     triggerHaptic('crisp')

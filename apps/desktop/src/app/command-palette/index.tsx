@@ -30,24 +30,19 @@ import {
   ChevronRight,
   Clock,
   Cpu,
-  Download,
   Egg,
   GitBranch,
-  Globe,
   type IconComponent,
   Info,
-  KeyRound,
   Layers3,
   MessageCircle,
   Monitor,
   Moon,
   Package,
-  Palette,
   PawPrint,
   Plus,
   RefreshCw,
   Settings,
-  Settings2,
   SlidersHorizontal,
   Starmap,
   Sun,
@@ -55,7 +50,6 @@ import {
   Wrench,
   Zap
 } from '@/lib/icons'
-import { useNineGate } from '@/lib/ninegate'
 import { normalize } from '@/lib/text'
 import { cn } from '@/lib/utils'
 import { resolveVersionStatus } from '@/lib/version-status'
@@ -77,13 +71,10 @@ import {
   $backendUpdateStatus,
   $desktopVersion,
   $updateApply,
-  $updateStatus,
-  requestActiveUpdate
+  $updateStatus
 } from '@/store/updates'
 import { canOpenNewWindow, openNewWindow } from '@/store/windows'
-import { luminance } from '@/themes/color'
 import { type ThemeMode, useTheme } from '@/themes/context'
-import { isUserTheme, resolveTheme } from '@/themes/user-themes'
 
 import { openSession, openSessionIntentFromModifiers } from '../open-session'
 import {
@@ -99,12 +90,11 @@ import {
   SKILLS_ROUTE,
   STARMAP_ROUTE
 } from '../routes'
-import { FIELD_LABELS, LOCKED_HIDDEN_SECTIONS, SECTIONS } from '../settings/constants'
+import { FIELD_LABELS, SECTIONS } from '../settings/constants'
 import { fieldCopyForSchemaKey } from '../settings/field-copy'
 import { prettyName } from '../settings/helpers'
 
 import { usePaletteContributions } from './contrib'
-import { MarketplaceThemePage } from './marketplace-theme-page'
 import { PetInlineToggle, PetPalettePage } from './pet-palette-page'
 
 interface PaletteItem {
@@ -147,7 +137,7 @@ interface PaletteGroup {
 
 // Nested page → its parent, so Back / Esc step up one level instead of closing
 // the palette. Pages absent here go straight back to the root list.
-const PAGE_PARENTS: Record<string, string> = { 'install-theme': 'theme' }
+const PAGE_PARENTS: Record<string, string> = {}
 
 /** A nested page reachable from a root item via `to`. */
 interface PalettePage {
@@ -399,36 +389,11 @@ const NON_CONFIG_SETTINGS: ReadonlyArray<{
   keywords?: string[]
   labelKey: NonConfigSettingsLabel
   tab: string
-  /** Only offered on an unlocked build — see the filter where these are mapped. */
-  unlockedOnly?: boolean
 }> = [
-  {
-    icon: Zap,
-    keywords: ['accounts', 'sign in', 'oauth', 'login', 'subscription', 'models', 'anthropic', 'openai'],
-    labelKey: 'providerAccounts',
-    tab: 'providers&pview=accounts',
-    unlockedOnly: true
-  },
-  {
-    icon: KeyRound,
-    keywords: ['providers', 'api key', 'keys', 'secrets', 'tokens', 'egress', 'iron proxy', 'sandbox proxy'],
-    labelKey: 'providerApiKeys',
-    tab: 'providers&pview=keys',
-    unlockedOnly: true
-  },
-  { icon: Globe, keywords: ['connection', 'messaging'], labelKey: 'gateway', tab: 'gateway', unlockedOnly: true },
-  {
-    icon: KeyRound,
-    keywords: ['api', 'secrets', 'tokens', 'credentials', 'browser', 'search'],
-    labelKey: 'keysTools',
-    tab: 'keys&kview=tools'
-  },
-  {
-    icon: Settings2,
-    keywords: ['gateway', 'proxy', 'server', 'webhook', 'env', 'egress proxy', 'iron proxy'],
-    labelKey: 'keysSettings',
-    tab: 'keys&kview=settings'
-  },
+  // Provider accounts, provider API keys, Gateway and Tools & Keys are not
+  // listed: those pages are not in this build, and the palette is the fastest
+  // way to reach a page — an entry that lands nowhere is the most annoying
+  // kind of dead end.
   {
     icon: Package,
     keywords: ['plugins', 'extensions', 'desktop plugins', 'addon', 'add-on'],
@@ -445,26 +410,6 @@ const THEME_MODES: ReadonlyArray<{ icon: IconComponent; mode: ThemeMode }> = [
   { icon: Monitor, mode: 'system' }
 ]
 
-// Which Light/Dark groups a theme belongs in. Built-ins render in both modes
-// (the engine synthesises the missing side). Imported VS Code themes only carry
-// the variant(s) the extension shipped — a single dark theme like Dracula lives
-// under Dark only, while a GitHub/Solarized family (light + dark) lives in both.
-function themeSupportsMode(name: string, target: 'light' | 'dark'): boolean {
-  if (!isUserTheme(name)) {
-    return true
-  }
-
-  const resolved = resolveTheme(name)
-
-  if (!resolved) {
-    return true
-  }
-
-  const background =
-    target === 'dark' ? (resolved.darkColors ?? resolved.colors).background : resolved.colors.background
-
-  return target === 'dark' ? luminance(background) <= 0.5 : luminance(background) > 0.5
-}
 
 /**
  * ⌘K is an overlay that is stateful to itself: pressing it must open a frame
@@ -528,18 +473,12 @@ export function CommandPalette() {
 
 function CommandPaletteBody({ onExited }: { onExited: () => void }) {
   const { t } = useI18n()
-  // Hides the provider entries below. The palette is the fastest way to reach
-  // a page, so an entry that leads to a page which no longer exists is the
-  // most annoying kind of dead end.
-  const nineGateLocked = useNineGate().locked
 
-  // Both the section entries and the per-field search below navigate to a
-  // config tab, so both have to skip the sections a locked build removed —
-  // otherwise searching "voice" offers a result that redirects away.
-  const visibleSections = useMemo(
-    () => SECTIONS.filter(section => !(nineGateLocked && LOCKED_HIDDEN_SECTIONS.has(section.id))),
-    [nineGateLocked]
-  )
+  // Every section this build has. The palette is the fastest way to reach a
+  // page, so an entry leading to a page that does not exist is the most
+  // annoying kind of dead end — there are none to filter now, because the
+  // removed pages are not in SECTIONS.
+  const visibleSections = SECTIONS
 
   const pendingPage = useStore($commandPalettePage)
   const bindings = useStore($bindings)
@@ -547,7 +486,7 @@ function CommandPaletteBody({ onExited }: { onExited: () => void }) {
   const projectTree = useStore($projectTree)
   const dismissedAutoProjects = useStore($dismissedAutoProjectIds)
   const navigate = useNavigate()
-  const { availableThemes, mode, resolvedMode, setMode, setTheme, themeName } = useTheme()
+  const { mode, setMode } = useTheme()
   const [search, setSearch] = useState('')
   const [page, setPage] = useState<string | null>(null)
 
@@ -889,20 +828,10 @@ function CommandPaletteBody({ onExited }: { onExited: () => void }) {
             label: cc.restartGateway,
             run: () => void runGatewayRestart()
           },
-          // Applies the upstream self-update, which a locked build must never
-          // run. The palette is a particularly bad place to leave it: it takes
-          // one keystroke and a guessed word, with no page in between to make
-          // anyone pause.
-          ...(nineGateLocked
-            ? []
-            : [{
-                detail: updateVersionLabel,
-                icon: Download,
-                id: 'cc-update-hermes',
-                keywords: ['update', 'upgrade', 'hermes', 'version', 'system', 'restart'],
-                label: cc.updateHermes,
-                run: () => requestActiveUpdate()
-              }])
+          // No "update Hermes" entry: it applied the upstream self-update,
+          // which this build must never run. The palette was the worst place
+          // to leave it — one keystroke and a guessed word, with no page in
+          // between to make anyone pause.
         ]
       },
       {
@@ -911,20 +840,9 @@ function CommandPaletteBody({ onExited }: { onExited: () => void }) {
         // buried under a fuzzy Settings match.
         heading: cc.appearance,
         items: [
-          // One skin on a locked build, so "Change theme" would open a picker
-          // with a single option and an Install-from-Marketplace button that
-          // puts palettes back. Colour mode below is the choice that remains.
-          ...(nineGateLocked
-            ? []
-            : [
-                {
-                  icon: Palette,
-                  id: 'appearance-theme',
-                  keywords: ['theme', 'appearance', 'color', 'palette', 'skin', 'dark', 'light', 'look'],
-                  label: cc.changeTheme,
-                  to: 'theme'
-                }
-              ]),
+          // No "Change theme": one skin ships, so the picker would offer a
+          // single option and an Install-from-Marketplace button that puts
+          // palettes back. Colour mode below is the choice that remains.
           {
             icon: Sun,
             id: 'appearance-mode',
@@ -958,7 +876,7 @@ function CommandPaletteBody({ onExited }: { onExited: () => void }) {
             label: settingsSectionLabel(section),
             run: go(settingsTab(`config:${section.id}`))
           })),
-          ...NON_CONFIG_SETTINGS.filter(entry => !(entry.unlockedOnly && nineGateLocked)).map(entry => ({
+          ...NON_CONFIG_SETTINGS.map(entry => ({
             icon: entry.icon,
             id: `set-${entry.tab}`,
             keywords: ['settings', ...(entry.keywords ?? [])],
@@ -976,7 +894,6 @@ function CommandPaletteBody({ onExited }: { onExited: () => void }) {
     contributedItems,
     dismissedAutoProjects,
     go,
-    nineGateLocked,
     projectTree,
     selectTick,
     settingsSectionLabel,
@@ -1062,27 +979,8 @@ function CommandPaletteBody({ onExited }: { onExited: () => void }) {
       ]
     })
 
-    // Apply a theme directly from the root search (e.g. "nous" → Nous). Live
-    // preview via keepOpen, mirroring the nested theme picker. If the theme
-    // can't render the current light/dark mode, flip to the one it supports.
-    result.push({
-      heading: t.settings.appearance.themeTitle,
-      items: (nineGateLocked ? [] : availableThemes).map(theme => ({
-        active: themeName === theme.name,
-        icon: Palette,
-        id: `search-theme-${theme.name}`,
-        keepOpen: true,
-        keywords: ['theme', 'appearance', 'color', 'skin', theme.name, theme.description],
-        label: theme.label,
-        run: () => {
-          setTheme(theme.name)
-
-          if (!themeSupportsMode(theme.name, resolvedMode)) {
-            setMode(resolvedMode === 'dark' ? 'light' : 'dark')
-          }
-        }
-      }))
-    })
+    // No theme search group: this build ships one skin. Colour mode below
+    // is the choice that remains.
 
     // Switch light/dark/system directly (typing "dark" shouldn't require the
     // nested color-mode page).
@@ -1164,21 +1062,16 @@ function CommandPaletteBody({ onExited }: { onExited: () => void }) {
     return result
   }, [
     archivedSessions,
-    availableThemes,
     configFieldLabel,
     go,
     goSession,
     mcpServers,
     mode,
-    nineGateLocked,
-    resolvedMode,
     search,
     sessions,
     setMode,
-    setTheme,
     settingsSectionLabel,
     t,
-    themeName,
     visibleSections
   ])
 
@@ -1195,44 +1088,6 @@ function CommandPaletteBody({ onExited }: { onExited: () => void }) {
   // and point a root item at it via `to`.
   const subPages = useMemo<Record<string, PalettePage>>(
     () => ({
-      theme: {
-        title: t.settings.appearance.themeTitle,
-        placeholder: t.settings.appearance.themeDesc,
-        groups: [
-          // Pinned at the top: drills into the Marketplace browser.
-          {
-            items: [
-              {
-                icon: Download,
-                id: 'theme-install',
-                keywords: ['install', 'marketplace', 'vscode', 'vs code', 'download', 'new', 'color'],
-                label: t.commandCenter.installTheme.title,
-                to: 'install-theme'
-              }
-            ]
-          },
-          // Built-ins and imported families list under the mode(s) they support;
-          // picking sets skin + mode at once. A multi-variant import (GitHub,
-          // Solarized) appears in both groups and switches variants with the mode.
-          ...(['light', 'dark'] as const).map(groupMode => ({
-            heading: groupMode === 'light' ? t.settings.modeOptions.light.label : t.settings.modeOptions.dark.label,
-            items: availableThemes
-              .filter(theme => themeSupportsMode(theme.name, groupMode))
-              .map(theme => ({
-                active: themeName === theme.name && resolvedMode === groupMode,
-                icon: groupMode === 'light' ? Sun : Moon,
-                id: `theme-${theme.name}-${groupMode}`,
-                keepOpen: true,
-                keywords: ['theme', 'appearance', 'palette', groupMode, theme.label, theme.description ?? ''],
-                label: theme.label,
-                run: () => {
-                  setTheme(theme.name)
-                  setMode(groupMode)
-                }
-              }))
-          }))
-        ]
-      },
       'color-mode': {
         title: t.settings.appearance.colorMode,
         placeholder: t.settings.appearance.colorModeDesc,
@@ -1257,15 +1112,8 @@ function CommandPaletteBody({ onExited }: { onExited: () => void }) {
         placeholder: t.commandCenter.pets.placeholder,
         groups: []
       },
-      // Server-driven page: items come from the Marketplace, rendered by
-      // <MarketplaceThemePage> (loader + live search + per-row install).
-      'install-theme': {
-        title: t.commandCenter.installTheme.pageTitle,
-        placeholder: t.commandCenter.installTheme.placeholder,
-        groups: []
-      }
     }),
-    [availableThemes, mode, resolvedMode, setMode, setTheme, t, themeName]
+    [mode, setMode, t]
   )
 
   const activePage = page ? subPages[page] : null
@@ -1372,8 +1220,6 @@ function CommandPaletteBody({ onExited }: { onExited: () => void }) {
                 }}
                 search={search}
               />
-            ) : page === 'install-theme' ? (
-              <MarketplaceThemePage onPickTheme={setTheme} search={search} />
             ) : (
               <PaletteGroups
                 bindings={bindings}

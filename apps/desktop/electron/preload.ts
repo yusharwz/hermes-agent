@@ -1,25 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 
 contextBridge.exposeInMainWorld('hermesDesktop', {
-  /**
-   * Whether this is a locked NineGate build, known before the first paint.
-   *
-   * The renderer used to learn this from an HTTP call to a backend the app
-   * itself is still starting, so for the first second or two of every launch
-   * it had no answer and rendered as though unlocked — the provider pages,
-   * billing and every removed tab appeared, then vanished. A customer sees
-   * that flash, and on a slow machine sees it for a while.
-   *
-   * The main process has known since it started: ATLAS_LOCKED is in the
-   * environment the installer wrote. Passing it through the bridge makes the
-   * first render correct instead of a guess that is corrected later.
-   */
-  lockedBuild: ((): boolean => {
-    const raw = String(process.env.ATLAS_LOCKED ?? '').trim().toLowerCase()
-
-    return raw !== '' && raw !== '0' && raw !== 'false' && raw !== 'no' && raw !== 'off'
-  })(),
-
   getConnection: profile => ipcRenderer.invoke('hermes:connection', profile),
   revalidateConnection: () => ipcRenderer.invoke('hermes:connection:revalidate'),
   touchBackend: profile => ipcRenderer.invoke('hermes:backend:touch', profile),

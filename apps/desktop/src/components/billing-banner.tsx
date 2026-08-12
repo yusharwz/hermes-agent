@@ -5,7 +5,6 @@ import { Button } from '@/components/ui/button'
 import { Codicon } from '@/components/ui/codicon'
 import { Tip } from '@/components/ui/tooltip'
 import { useI18n } from '@/i18n'
-import { useNineGate } from '@/lib/ninegate'
 import { $billingBlock, billingCtaLabel, clearBillingBlock, runBillingRecovery } from '@/store/billing-block'
 
 function firstLine(text: string): string {
@@ -22,7 +21,6 @@ function firstLine(text: string): string {
  * reminder that outlives it.
  */
 export function BillingBanner({ sessionId }: { sessionId: null | string }) {
-  const nineGateLocked = useNineGate().locked
   const active = useStore($billingBlock)
   const { t } = useI18n()
 
@@ -33,14 +31,10 @@ export function BillingBanner({ sessionId }: { sessionId: null | string }) {
   const { block } = active
   const copy = t.billingBlock
 
-  // "Out of Nous credits" names a company the customer has no relationship
-  // with, and on a locked build the block can only ever be their own NineGate
+  // "Out of Nous credits" would name a company the customer has no
+  // relationship with. The block can only ever be their own NineGate
   // allowance — there is no other account in play.
-  const title = nineGateLocked
-    ? 'Kuota NineGate Anda habis'
-    : block.is_nous
-      ? copy.titleNous
-      : copy.titleProvider(block.provider_label)
+  const title = 'Kuota NineGate Anda habis'
 
   const message = firstLine(block.message) || copy.fallbackMessage
 

@@ -552,6 +552,16 @@ describe('applyBackendUpdate recovery', () => {
 })
 
 describe('startUpdatePoller', () => {
+  // It polls nothing, on purpose.
+  //
+  // The upstream update check fed the About card, two status-bar items and an
+  // unprompted "see what's new" toast — and what it finds is the upstream
+  // project, so applying it would pull Nous code over an Atlas install and
+  // take the NineGate lock with it. All three surfaces are gone; this stops
+  // the check at the source so the next surface added does not resurrect it.
+  //
+  // These tests are the tripwire: a merge that restores the poller turns them
+  // red rather than quietly restoring the toast.
   const checkMock = vi.fn()
   const onProgressMock = vi.fn()
   const listeners: Record<string, Function> = {}
@@ -585,37 +595,28 @@ describe('startUpdatePoller', () => {
     vi.useRealTimers()
   })
 
-  it('calls checkUpdates() on startup so the version pill populates immediately', async () => {
+  it('does not check on startup', async () => {
     startUpdatePoller()
-
-    // checkUpdates() is async — flush microtasks without advancing the 30-min interval.
     await vi.advanceTimersByTimeAsync(0)
 
-    expect(checkMock).toHaveBeenCalled()
-    expect($updateStatus.get()?.behind).toBe(5)
+    expect(checkMock).not.toHaveBeenCalled()
+    expect($updateStatus.get()).toBeNull()
   })
 
-  it('calls checkUpdates() on each interval tick', async () => {
+  it('does not check on an interval', async () => {
     startUpdatePoller()
-    await vi.advanceTimersByTimeAsync(0)
-    checkMock.mockClear()
-
     await vi.advanceTimersByTimeAsync(30 * 60 * 1000)
 
-    expect(checkMock).toHaveBeenCalled()
+    expect(checkMock).not.toHaveBeenCalled()
   })
 
-  it('calls checkUpdates() when the window regains focus', async () => {
+  it('registers no focus listener to check from', async () => {
     startUpdatePoller()
     await vi.advanceTimersByTimeAsync(0)
-    checkMock.mockClear()
 
-    // Invoke the registered focus handler directly (the mock window doesn't
-    // propagate DOM events, so call the stored listener).
     listeners['focus']?.()
-
     await vi.advanceTimersByTimeAsync(0)
 
-    expect(checkMock).toHaveBeenCalled()
+    expect(checkMock).not.toHaveBeenCalled()
   })
 })

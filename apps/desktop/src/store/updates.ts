@@ -15,7 +15,6 @@ import type {
 } from '@/global'
 import { checkHermesUpdate, getActionStatus, updateHermes } from '@/hermes'
 import { translateNow } from '@/i18n'
-import { fetchNineGateStatus } from '@/lib/ninegate'
 import { persistString, storedString } from '@/lib/storage'
 import { dismissNotification, notify } from '@/store/notifications'
 import { $connection } from '@/store/session'
@@ -666,81 +665,22 @@ let lastFocusAt = 0
 let connectionUnsub: (() => void) | null = null
 let lastConnectionMode: string | undefined
 
-/** Wire up background polling + progress streaming. Idempotent. */
-export function startUpdatePoller(): void {
-  if (pollerStarted || typeof window === 'undefined') {
-    return
-  }
+/**
+ * The upstream update poller is not started in this build.
+ *
+ * Kept as a no-op rather than deleted: it is called from the desktop
+ * integrations hook alongside a dozen other wirings, and a function that
+ * explains itself there is worth more than one fewer call site.
+ *
+ * What the check would find is the upstream project. Applying it would pull
+ * Nous code over an Atlas install and take the NineGate lock with it. It fed
+ * three surfaces — the About card, two status-bar items, and a toast that
+ * appears unprompted offering "see what's new" — and all three are gone;
+ * stopping it at the source is what keeps the next one from arriving by
+ * default. Atlas updates come from the gateway (see lib/ninegate-update.ts).
+ */
+export function startUpdatePoller(): void {}
 
-  /**
-   * A locked build never checks for updates.
-   *
-   * Gated at the source rather than on each surface. The check feeds three
-   * separate places — the About card, two status-bar items, and a toast that
-   * appears unprompted offering "see what's new" — and closing them one by one
-   * leaves whichever is added next open by default. If the check never runs,
-   * there is nothing for any of them to show.
-   *
-   * What it would find is the upstream project, so applying it would pull Nous
-   * code over an Atlas install and take the NineGate lock with it. Atlas
-   * updates arrive through the installer.
-   *
-   * The lock is asked for BEFORE the poller is armed, not alongside it.
-   * Starting first and cancelling on the answer would let the first check —
-   * and its toast — fire in the gap.
-   */
-  void fetchNineGateStatus()
-    .then(status => {
-      if (!status.locked) {armUpdatePoller()}
-    })
-    .catch(() => {
-      // No /api/ninegate means a build older than the lock, which is an
-      // unlocked one. Behave as before.
-      armUpdatePoller()
-    })
-}
-
-function armUpdatePoller(): void {
-  if (pollerStarted || typeof window === 'undefined') {
-    return
-  }
-
-  const bridge = window.hermesDesktop?.updates
-
-  if (!bridge) {
-    return
-  }
-
-  pollerStarted = true
-  void checkUpdates()
-  void checkBackendUpdates()
-  void refreshDesktopVersion()
-  bridge.onProgress(ingestProgress)
-
-  // The poller starts at mount, before the gateway connects — so the first
-  // backend check above sees mode≠remote and no-ops. Re-check once the
-  // connection resolves to remote.
-  connectionUnsub = $connection.subscribe(conn => {
-    if (conn?.mode === lastConnectionMode) {
-      return
-    }
-
-    lastConnectionMode = conn?.mode
-
-    if (conn?.mode === 'remote') {
-      void checkBackendUpdates()
-    }
-  })
-
-  window.addEventListener('focus', onFocus)
-  backgroundTimer = setInterval(
-    () => {
-      void checkUpdates()
-      void checkBackendUpdates()
-    },
-    30 * 60 * 1000
-  )
-}
 
 export function stopUpdatePoller(): void {
   if (backgroundTimer !== null) {

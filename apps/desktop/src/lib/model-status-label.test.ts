@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
 import { currentPickerSelection, displayModelName, formatModelStatusLabel } from './model-status-label'
 import { reasoningEffortLabel } from './reasoning-effort'
@@ -12,7 +12,9 @@ describe('model-status-label', () => {
   })
 
   it('strips trailing date-pin snapshots from the display name', () => {
-    expect(displayModelName('claude-opus-4-5-20251101')).toBe('Opus 4 5')
+    // Prefixed, because a bare id is a combo and reads as "Auto" — see the
+    // block at the bottom of this file.
+    expect(displayModelName('anthropic/claude-opus-4-5-20251101')).toBe('Opus 4 5')
     expect(displayModelName('anthropic/claude-haiku-4-5-20251001')).toBe('Haiku 4 5')
   })
 
@@ -75,37 +77,22 @@ describe('model-status-label', () => {
 describe('a 9Router combo reads as Auto', () => {
   // The combo is the plan's automatic choice. Showing "NineGate-Low" names an
   // internal routing pool as though it were the model doing the work.
-  afterEach(() => vi.unstubAllGlobals())
+  //
+  // This used to be gated on a runtime "is this a locked build" answer, and
+  // the tests mocked that answer both ways. There is one build now, so the
+  // rule is unconditional: an id with no provider prefix is a combo, which is
+  // 9Router's own rule and the only catalogue this app can reach.
 
-  const lock = (locked: boolean) => vi.doMock('@/lib/ninegate', () => ({ isNineGateLocked: () => locked }))
-
-  it('renames a bare id on a locked build', async () => {
-    vi.resetModules()
-    lock(true)
-    const { displayModelName } = await import('./model-status-label')
+  it('renames a bare id', () => {
     expect(displayModelName('NineGate-Low')).toBe('Auto')
   })
 
-  it('leaves a prefixed id alone on a locked build', async () => {
-    vi.resetModules()
-    lock(true)
-    const { displayModelName } = await import('./model-status-label')
+  it('leaves a prefixed id alone', () => {
     // A single model the customer picked deliberately keeps its own name.
     expect(displayModelName('ag/gemini-3-flash')).not.toBe('Auto')
   })
 
-  it('never renames anything on an unlocked build', async () => {
-    vi.resetModules()
-    lock(false)
-    const { displayModelName } = await import('./model-status-label')
-    // Upstream providers ship plenty of unprefixed ids; none of them is a combo.
-    expect(displayModelName('gpt-5')).not.toBe('Auto')
-  })
-
-  it('leaves an empty model to the existing empty-state text', async () => {
-    vi.resetModules()
-    lock(true)
-    const { displayModelName } = await import('./model-status-label')
+  it('leaves an empty model to the existing empty-state text', () => {
     expect(displayModelName('')).toBe('No model')
   })
 })

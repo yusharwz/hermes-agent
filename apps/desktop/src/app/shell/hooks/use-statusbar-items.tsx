@@ -10,13 +10,11 @@ import { Codicon } from '@/components/ui/codicon'
 import { GlyphSpinner } from '@/components/ui/glyph-spinner'
 import { useI18n } from '@/i18n'
 import { displayPath, pathLeaf } from '@/lib/display-path'
-import { Activity, AlertCircle, Clock, Command, FolderOpen, Globe, Hash, Loader2, Terminal } from '@/lib/icons'
-import { useNineGate } from '@/lib/ninegate'
+import { Activity, AlertCircle, Clock, Command, FolderOpen, Globe, Loader2, Terminal } from '@/lib/icons'
 import type { RuntimeReadinessResult } from '@/lib/runtime-readiness'
 import { contextBarLabel, LiveDuration, usageContextLabel } from '@/lib/statusbar'
 import { useStoreSelector } from '@/lib/use-session-slice'
 import { cn } from '@/lib/utils'
-import { resolveVersionStatus } from '@/lib/version-status'
 import { copyFilePath, revealFile } from '@/store/file-actions'
 import { revealFileInTree } from '@/store/layout'
 import { $activeGatewayProfile } from '@/store/profile'
@@ -43,12 +41,11 @@ import {
   $backendUpdateStatus,
   $desktopVersion,
   $updateApply,
-  $updateStatus,
-  openUpdateOverlayFor
+  $updateStatus
 } from '@/store/updates'
 import type { StatusResponse, UsageStats } from '@/types/hermes'
 
-import { CRON_ROUTE, SETTINGS_ROUTE, WEBHOOKS_ROUTE } from '../../routes'
+import { CRON_ROUTE, WEBHOOKS_ROUTE } from '../../routes'
 import type { StatusbarItem } from '../statusbar-controls'
 
 const EMPTY_USAGE = { calls: 0, input: 0, output: 0, total: 0 } as const
@@ -83,7 +80,6 @@ export function useStatusbarItems({
   statusSnapshot,
   toggleCommandCenter
 }: StatusbarItemsOptions) {
-  const nineGateLocked = useNineGate().locked
   const { t } = useI18n()
   const copy = t.shell.statusbar
   const fileMenu = t.fileMenu
@@ -274,90 +270,6 @@ export function useStatusbarItems({
       ? 'text-amber-600 hover:text-amber-600'
       : 'text-destructive hover:text-destructive'
 
-  const clientVersionItem = useMemo<StatusbarItem>(() => {
-    const applying = updateApply.applying || updateApply.stage === 'restart'
-
-    const status = resolveVersionStatus({
-      applying,
-      applyMessage: updateApply.message,
-      behind: updateStatus?.behind ?? 0,
-      branch: updateStatus?.branch,
-      copy,
-      remote: connection?.mode === 'remote',
-      restarting: updateApply.stage === 'restart',
-      sha: updateStatus?.currentSha?.slice(0, 7) ?? null,
-      target: 'client',
-      version: desktopVersion?.appVersion
-    })
-
-    return {
-      className: status.hasUpdate ? 'text-primary hover:text-primary' : undefined,
-      detail: status.detail,
-      hidden: status.unknown,
-      icon: applying ? <Loader2 className="size-3 animate-spin" /> : <Hash className="size-3" />,
-      id: 'version-client',
-      label: status.label,
-      // Update state is not a preference: hiding it is how a user misses that
-      // their client is behind. Listed in the menu, but locked on.
-      lockedVisible: true,
-      onSelect: () => openUpdateOverlayFor('client'),
-      title: status.tooltip,
-      toggleLabel: copy.toggleVersion,
-      variant: 'action'
-    }
-  }, [
-    desktopVersion?.appVersion,
-    connection?.mode,
-    copy,
-    updateApply.applying,
-    updateApply.message,
-    updateApply.stage,
-    updateStatus?.behind,
-    updateStatus?.branch,
-    updateStatus?.currentSha
-  ])
-
-  const backendVersionItem = useMemo<StatusbarItem | null>(() => {
-    if (connection?.mode !== 'remote') {
-      return null
-    }
-
-    const applying = backendUpdateApply.applying || backendUpdateApply.stage === 'restart'
-
-    const status = resolveVersionStatus({
-      applying,
-      applyMessage: backendUpdateApply.message,
-      behind: backendUpdateStatus?.behind ?? 0,
-      copy,
-      remote: true,
-      restarting: backendUpdateApply.stage === 'restart',
-      target: 'backend',
-      updateAvailable: backendUpdateStatus?.updateAvailable,
-      version: statusSnapshot?.version
-    })
-
-    return {
-      className: status.hasUpdate ? 'text-primary hover:text-primary' : undefined,
-      hidden: status.unknown,
-      icon: applying ? <Loader2 className="size-3 animate-spin" /> : <Hash className="size-3" />,
-      id: 'version-backend',
-      label: status.label,
-      lockedVisible: true,
-      onSelect: () => openUpdateOverlayFor('backend'),
-      title: status.tooltip,
-      toggleLabel: copy.toggleBackendVersion,
-      variant: 'action'
-    }
-  }, [
-    connection?.mode,
-    statusSnapshot?.version,
-    backendUpdateStatus?.behind,
-    backendUpdateStatus?.updateAvailable,
-    backendUpdateApply.applying,
-    backendUpdateApply.message,
-    backendUpdateApply.stage,
-    copy
-  ])
 
   const connectionItem = useMemo<StatusbarItem | null>(() => {
     if (connection?.mode !== 'remote' || !connection.remoteHost) {
@@ -380,11 +292,10 @@ export function useStatusbarItems({
           ? copy.connectionCloud(connection.remoteHost)
           : copy.connectionRemote(connection.remoteHost),
       // Label already names the host — no "click to manage" tip lecture.
-      // A locked build has no gateway page to link to, so the badge stays as
-      // an indicator rather than a link that lands nowhere.
-      to: nineGateLocked ? undefined : `${SETTINGS_ROUTE}?tab=gateway`
+      // There is no gateway page to link to, so the badge is an indicator
+      // rather than a link that lands nowhere.
     }
-  }, [connection?.mode, connection?.remoteHost, connection?.remoteKind, copy, nineGateLocked])
+  }, [connection?.mode, connection?.remoteHost, connection?.remoteKind, copy])
 
   const coreLeftStatusbarItems = useMemo<readonly StatusbarItem[]>(
     () => [
@@ -573,22 +484,16 @@ export function useStatusbarItems({
         toggleLabel: copy.toggleTerminal,
         variant: 'action'
       },
-      // Both update items lead to the upstream self-update, which a locked
-      // build must not run — see the note on the About page. Dropped here too,
-      // because the status bar is the more likely place to click one: it
-      // announces itself as "update available" without the customer going
-      // looking.
-      ...(nineGateLocked ? [] : [clientVersionItem]),
-      ...(!nineGateLocked && backendVersionItem ? [backendVersionItem] : [])
+      // No update pills here. Both led to the upstream self-update, which
+      // this build must not run — see the note on the About page. The status
+      // bar was the more likely place to click one, because it announces
+      // itself as "update available" without the customer going looking.
     ],
     [
       activeSessionId,
       approvalModeItem,
-      nineGateLocked,
-      backendVersionItem,
       busy,
       chatOpen,
-      clientVersionItem,
       contextBar,
       contextUsage,
       copy,

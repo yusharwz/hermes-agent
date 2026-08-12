@@ -4,16 +4,15 @@ import type { HermesGateway } from '@/hermes'
 import type { IconComponent } from '@/lib/icons'
 import type { EnvVarInfo } from '@/types/hermes'
 
+// Billing, Gateway, Providers and Tools & Keys are gone from this build, so
+// they are gone from the type: a view that cannot be rendered should not be
+// nameable. See the note on SETTINGS_VIEWS in ./index.tsx.
 export type SettingsView =
   | 'about'
-  | 'billing'
-  | 'gateway'
   | 'keybinds'
-  | 'keys'
   | 'nineGate'
   | 'notifications'
   | 'plugins'
-  | 'providers'
   | 'sessions'
   | `config:${string}`
 export type EnvPatch = Partial<Pick<EnvVarInfo, 'is_set' | 'redacted_value'>>

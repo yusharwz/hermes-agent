@@ -7,100 +7,51 @@ const skin = (name: string) => ({
   colors: { background: '#101020', ui_accent: '#ff33aa', banner_text: '#eeeeee' }
 })
 
+/**
+ * A skin from the backend changes nothing here.
+ *
+ * This used to register the converted palette and repaint on a name change.
+ * Atlas ships one skin, and an upgraded machine's CLI config can still name a
+ * retired one — folding that in would put a colour scheme on screen that no
+ * surface offers a way to leave.
+ *
+ * These cases are the tripwire. They are written against the events that
+ * actually arrive (a connect-time seed, an explicit `skin.changed`, a switch
+ * back to `default`), so a merge that restores the ingest turns them red
+ * instead of quietly restoring the palettes.
+ */
 describe('ingestBackendSkin', () => {
   beforeEach(() => __resetBackendSkinSync())
 
-  it('registers a converted skin without applying when apply=false', () => {
+  it('does not register a skin the backend pushes', () => {
     ingestBackendSkin(skin('neon'), { apply: false })
 
-    expect($backendThemes.get().neon?.name).toBe('neon')
-    expect($pendingSkinApply.get()).toBeNull()
+    expect($backendThemes.get().neon).toBeUndefined()
   })
 
-  it('applies a new skin name once', () => {
-    ingestBackendSkin(skin('neon'), { apply: true })
-
-    expect($pendingSkinApply.get()).toBe('neon')
-  })
-
-  it('does not re-apply the same skin name', () => {
-    ingestBackendSkin(skin('neon'), { apply: true })
-    $pendingSkinApply.set(null)
+  it('does not repaint on an explicit skin.changed', () => {
     ingestBackendSkin(skin('neon'), { apply: true })
 
     expect($pendingSkinApply.get()).toBeNull()
   })
 
-  it('applies again when the skin name changes', () => {
+  it('does not repaint on a name change either', () => {
     ingestBackendSkin(skin('neon'), { apply: true })
-    $pendingSkinApply.set(null)
     ingestBackendSkin(skin('forest'), { apply: true })
 
-    expect($pendingSkinApply.get()).toBe('forest')
-  })
-
-  it('seed does not paint, but a later same-name skin.changed applies (missed-activation recovery)', () => {
-    // Connect while display.skin is already neon: seed records the baseline
-    // without painting (never stomp the persisted desktop theme on connect).
-    ingestBackendSkin(skin('neon'), { apply: false }) // gateway.ready seed
-    expect($pendingSkinApply.get()).toBeNull()
-
-    // The activation event was missed (skin set while disconnected / backend
-    // restarted). Hermes re-affirms it — `hermes config set display.skin neon`
-    // or a `hermes skin set` recolor. That explicit event must repaint even
-    // though the name matches the seed.
-    ingestBackendSkin(skin('neon'), { apply: true })
-    expect($pendingSkinApply.get()).toBe('neon')
-
-    // Once applied, a repeat same-name event is a no-op again...
-    $pendingSkinApply.set(null)
-    ingestBackendSkin(skin('neon'), { apply: true })
-    expect($pendingSkinApply.get()).toBeNull()
-
-    // ...and a genuine switch still applies.
-    ingestBackendSkin(skin('forest'), { apply: true }) // Hermes authored a new skin
-    expect($pendingSkinApply.get()).toBe('forest')
-  })
-
-  it('a reconnect re-seed after a real apply does not downgrade the applied baseline', () => {
-    ingestBackendSkin(skin('neon'), { apply: true }) // applied for real
-    $pendingSkinApply.set(null)
-
-    ingestBackendSkin(skin('neon'), { apply: false }) // reconnect: gateway.ready re-seed
-    ingestBackendSkin(skin('neon'), { apply: true }) // repeat event (e.g. in-place recolor)
-
-    // Already painted once — the repeat must not re-apply (protects a manual
-    // desktop-side theme switch from being snapped back after a reconnect).
     expect($pendingSkinApply.get()).toBeNull()
   })
 
-  it('never registers default in the backend store (desktop keeps its own palette)', () => {
+  it('leaves the registry empty across a connect seed and a runtime change', () => {
+    ingestBackendSkin(skin('neon'), { apply: false })
+    ingestBackendSkin(skin('mono'), { apply: true })
     ingestBackendSkin(skin('default'), { apply: true })
 
-    expect($backendThemes.get().default).toBeUndefined()
-  })
-
-  it('does not apply default on the connect-time seed', () => {
-    ingestBackendSkin(skin('default'), { apply: false })
-
+    expect($backendThemes.get()).toEqual({})
     expect($pendingSkinApply.get()).toBeNull()
   })
 
-  it('applies a runtime switch back to default (repaints the desktop to its own default)', () => {
-    ingestBackendSkin(skin('neon'), { apply: false }) // gateway.ready seed on some skin
-    ingestBackendSkin(skin('default'), { apply: true }) // Hermes switched back to default
-
-    expect($pendingSkinApply.get()).toBe('default')
-  })
-
-  it('does not shadow a built-in name but can still apply it', () => {
-    ingestBackendSkin(skin('mono'), { apply: true })
-
-    expect($backendThemes.get().mono).toBeUndefined()
-    expect($pendingSkinApply.get()).toBe('mono')
-  })
-
-  it('ignores empty payloads', () => {
+  it('ignores empty payloads without throwing', () => {
     ingestBackendSkin(undefined, { apply: true })
     ingestBackendSkin({ name: '' }, { apply: true })
 

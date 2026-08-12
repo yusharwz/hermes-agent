@@ -2,7 +2,6 @@ import { useStore } from '@nanostores/react'
 import { useQuery } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
 
-import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { DisclosureCaret } from '@/components/ui/disclosure-caret'
@@ -14,7 +13,6 @@ import { useI18n } from '@/i18n'
 import { Search } from '@/lib/icons'
 import { modelOptionsFreshness, modelOptionsQueryKey, requestModelOptions } from '@/lib/model-options'
 import { displayModelName, modelDisplayParts } from '@/lib/model-status-label'
-import { useNineGate } from '@/lib/ninegate'
 import { normalize } from '@/lib/text'
 import {
   $visibleModels,
@@ -45,7 +43,6 @@ export function ModelVisibilityDialog({
   profile = 'default',
   sessionId
 }: ModelVisibilityDialogProps) {
-  const nineGateLocked = useNineGate().locked
   const { t } = useI18n()
   const copy = t.modelVisibility
   const [search, setSearch] = useState('')
@@ -171,26 +168,6 @@ export function ModelVisibilityDialog({
           )}
         </div>
 
-        {/* Hidden on a locked build, like its sibling in the model picker. The
-            Providers page it opens does not exist there, so the button was a
-            button that did nothing — and now that the route redirects, it
-            would bounce the customer to a page they did not ask for. */}
-        {nineGateLocked ? null : (
-          <div className="px-3 py-2">
-            <Button
-              className="-ml-2 text-(--ui-text-tertiary)"
-              onClick={() => {
-                onOpenChange(false)
-                onOpenProviders()
-              }}
-              size="xs"
-              type="button"
-              variant="text"
-            >
-              {copy.addProvider}
-            </Button>
-          </div>
-        )}
       </DialogContent>
     </Dialog>
   )

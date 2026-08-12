@@ -1,4 +1,3 @@
-import { isNineGateLocked } from '@/lib/ninegate'
 import { DEFAULT_REASONING_EFFORT, reasoningEffortLabel } from '@/lib/reasoning-effort'
 
 /**
@@ -95,7 +94,7 @@ function prettifyBase(base: string): string {
 /** Split a model id into a clean display name plus an optional grayed variant
  *  tag, so distinct ids (e.g. `…-4.8` vs `…-4.8-fast`) don't collapse. */
 export function modelDisplayParts(model: string): { name: string; tag: string } {
-  if (isNineGateLocked() && model.trim() && isComboId(model)) {
+  if (model.trim() && isComboId(model)) {
     return { name: AUTO_LABEL, tag: '' }
   }
 

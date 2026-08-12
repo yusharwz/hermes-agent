@@ -7,21 +7,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tip } from '@/components/ui/tooltip'
 import type { DesktopAuthProvider, DesktopCloudAgent, DesktopCloudOrg, DesktopConnectionProbeResult } from '@/global'
 import { useI18n } from '@/i18n'
-import { ExternalLink } from '@/lib/external-link'
 import {
   AlertCircle,
   Check,
-  Cloud,
   FileText,
   Globe,
   HelpCircle,
   Loader2,
   LogIn,
   Monitor,
-  RefreshCw,
   Terminal
 } from '@/lib/icons'
-import { useNineGate } from '@/lib/ninegate'
 import { coerceRemoteUrlScheme } from '@/lib/remote-url'
 import { selectableCardClass } from '@/lib/selectable-card'
 import { cn } from '@/lib/utils'
@@ -147,7 +143,6 @@ function ScopeChip({ active, label, onSelect }: { active: boolean; label: string
 // Diagnostics row are redundant there (the card owns its header + a single
 // reconnect action), so only the connection controls render.
 export function GatewaySettings({ embedded = false }: { embedded?: boolean } = {}) {
-  const nineGateLocked = useNineGate().locked
   const { t } = useI18n()
   const g = t.settings.gateway
   const [loading, setLoading] = useState(true)
@@ -1063,19 +1058,10 @@ export function GatewaySettings({ embedded = false }: { embedded?: boolean } = {
             onSelect={() => setState(current => ({ ...current, mode: 'local' }))}
             title={scope === null ? g.localTitle : g.inheritTitle}
           />
-          {/* "Cloud" here means Nous Portal: sign in to their account, pick an
-              organisation, choose one of its agents. A NineGate customer has
-              none of those, so the mode could be selected but never completed. */}
-          {nineGateLocked ? null : (
-            <ModeCard
-              active={state.mode === 'cloud'}
-              description={g.cloudDesc}
-              disabled={state.envOverride}
-              icon={Cloud}
-              onSelect={() => setState(current => ({ ...current, mode: 'cloud' }))}
-              title={g.cloudTitle}
-            />
-          )}
+          {/* No "Cloud" card: it means Nous Portal — sign in to their account,
+              pick an organisation, choose one of its agents. An Atlas customer
+              has none of those, so the mode could be selected but never
+              completed. */}
           <ModeCard
             active={state.mode === 'remote'}
             description={g.remoteDesc}
@@ -1097,154 +1083,12 @@ export function GatewaySettings({ embedded = false }: { embedded?: boolean } = {
         </div>
       </div>
 
-      {/* Hermes Cloud panel: one portal sign-in, then a discovered-agent picker
-          whose selection drives the silent per-agent cascade + a cloud
-          connection. Replaces the URL/token form while in cloud mode. */}
-      {/* Also guarded on the lock, not just the card above: a machine that
-          used cloud mode before the lock still has `mode: 'cloud'` saved, and
-          would land straight on a Nous sign-in panel with no way to leave it
-          except picking another card. */}
-      {state.mode === 'cloud' && !state.envOverride && !nineGateLocked ? (
-        <div className="mt-5 grid gap-1">
-          <ListRow
-            action={
-              cloudSignedIn ? (
-                <div className="flex items-center gap-2">
-                  <Pill tone="primary">
-                    <Check className="size-3" /> {g.cloudSignedIn}
-                  </Pill>
-                  <Button disabled={cloudSigningIn} onClick={() => void cloudSignOut()} variant="outline">
-                    {cloudSigningIn ? <Loader2 className="animate-spin" /> : null}
-                    {g.signOut}
-                  </Button>
-                </div>
-              ) : (
-                <Button disabled={cloudSigningIn} onClick={() => void cloudSignIn()}>
-                  {cloudSigningIn ? <Loader2 className="animate-spin" /> : <LogIn />}
-                  {g.cloudSignIn}
-                </Button>
-              )
-            }
-            description={cloudSignedIn ? g.cloudSignedInDesc : g.cloudNeedsSignIn}
-            title={g.cloudSignInTitle}
-          />
-
-          {cloudSignedIn ? (
-            cloudOrgs.length > 0 && !cloudOrg ? (
-              // Multi-org user who hasn't picked an org yet: show the org picker
-              // instead of the agent list. Selecting one re-runs discovery
-              // scoped to it.
-              <div className="mt-3">
-                <div className="mb-2 text-[length:var(--conversation-caption-font-size)] font-medium text-(--ui-text-secondary)">
-                  {g.cloudOrgPickerTitle}
-                </div>
-                <div className="grid gap-1">
-                  {cloudOrgs.map(orgEntry => (
-                    <ListRow
-                      action={
-                        <Button onClick={() => selectCloudOrg(orgEntry)} size="sm">
-                          {g.cloudOrgSelect}
-                        </Button>
-                      }
-                      description={g.cloudOrgRole(orgEntry.role)}
-                      key={orgEntry.id}
-                      title={orgEntry.name}
-                    />
-                  ))}
-                </div>
-              </div>
-            ) : (
-              <div className="mt-3">
-                <div className="mb-2 flex items-center justify-between">
-                  <div className="text-[length:var(--conversation-caption-font-size)] font-medium text-(--ui-text-secondary)">
-                    {g.cloudAgentsTitle}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {cloudOrg ? (
-                      // Let the user switch orgs. Gating on cloudOrgs.length would
-                      // hide this after a restore-open (which discovers straight
-                      // into the saved org and never populates the org list). So
-                      // show it whenever an org is selected: clicking clears the
-                      // org and re-runs discovery with no org arg — a multi-org
-                      // user gets the picker (NAS 409), a single-org user simply
-                      // auto-resolves back to their one org (harmless).
-                      <Button onClick={() => changeCloudOrg()} size="sm" variant="text">
-                        {g.cloudOrgChange}
-                      </Button>
-                    ) : null}
-                    <Button
-                      disabled={cloudDiscover === 'loading'}
-                      onClick={() => void discoverCloud(cloudOrg ?? undefined)}
-                      size="sm"
-                      variant="text"
-                    >
-                      {cloudDiscover === 'loading' ? <Loader2 className="animate-spin" /> : <RefreshCw />}
-                      {g.cloudRefresh}
-                    </Button>
-                  </div>
-                </div>
-
-                {cloudDiscover === 'loading' ? (
-                  <div className="flex items-center gap-2 py-3 text-[length:var(--conversation-caption-font-size)] text-(--ui-text-tertiary)">
-                    <Loader2 className="size-4 animate-spin" />
-                    {g.cloudLoadingAgents}
-                  </div>
-                ) : cloudAgents.length === 0 ? (
-                  <div className="flex items-start gap-2 py-3 text-[length:var(--conversation-caption-font-size)] text-(--ui-text-tertiary)">
-                    <AlertCircle className="mt-0.5 size-4 shrink-0" />
-                    <span>
-                      {g.cloudNoAgents.before}
-                      <ExternalLink href="https://portal.nousresearch.com/agents" showExternalIcon={false}>
-                        {g.cloudNoAgents.linkText}
-                      </ExternalLink>
-                      {g.cloudNoAgents.after}
-                    </span>
-                  </div>
-                ) : (
-                  <div className="grid gap-1">
-                    {cloudAgents.map(agent => {
-                      const connected = isConnectedAgent(agent)
-
-                      return (
-                        <div
-                          className={cn('rounded-md px-2', connected && 'bg-primary/5 ring-1 ring-primary/25')}
-                          key={agent.id}
-                        >
-                          <ListRow
-                            action={
-                              connected ? (
-                                <Pill tone="primary">
-                                  <Check className="mr-1 inline size-3" />
-                                  {g.cloudConnectedPill}
-                                </Pill>
-                              ) : (
-                                <Button
-                                  disabled={!agent.dashboardUrl || cloudConnectingId !== null}
-                                  onClick={() => void connectCloudAgent(agent)}
-                                  size="sm"
-                                >
-                                  {cloudConnectingId === agent.id ? <Loader2 className="animate-spin" /> : null}
-                                  {agent.dashboardUrl
-                                    ? cloudConnectingId === agent.id
-                                      ? g.cloudConnecting
-                                      : g.cloudConnect
-                                    : g.cloudAgentProvisioning}
-                                </Button>
-                              )
-                            }
-                            description={g.cloudStatusLabel(agent.dashboardGatewayState)}
-                            title={agent.name}
-                          />
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
-              </div>
-            )
-          ) : null}
-        </div>
-      ) : null}
+      {/* No Hermes Cloud panel: it is a Nous Portal sign-in and an
+          agent picker, and an Atlas subscription has neither. Kept out
+          separately from the mode card above, because a machine that used
+          cloud mode before it moved to Atlas still has `mode: 'cloud'`
+          saved and would otherwise land straight on a sign-in it can never
+          complete, with no way out except picking another card. */}
 
       {state.mode === 'remote' && !state.envOverride ? (
         <div className="mt-5 grid gap-1">

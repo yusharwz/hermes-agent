@@ -39,10 +39,9 @@ export function NineGateLoginOverlay({ enabled }: { enabled: boolean }) {
         const status = await fetchNineGateStatus()
 
         if (cancelled) {return}
-        // Only a LOCKED build with no key. An unlocked developer build has its
-        // own onboarding, and a locked one that is already signed in has
-        // nothing to ask.
-        setNeeded(status.locked && !status.keyPresent)
+        // Only when there is no key yet: an install that is already signed in
+        // has nothing to ask.
+        setNeeded(!status.keyPresent)
         setGateway(status.gateway)
       } catch {
         // An older backend has no /api/ninegate. Nothing to gate on.

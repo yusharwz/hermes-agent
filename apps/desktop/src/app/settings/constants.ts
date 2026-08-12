@@ -1,10 +1,8 @@
 import {
-  Box,
   Brain,
   type IconComponent,
   Lock,
   MessageCircle,
-  Mic,
   Monitor,
   Moon,
   Palette,
@@ -634,33 +632,6 @@ export const FIELD_DESCRIPTIONS: Record<string, string> = defineFieldCopy({
   }
 })
 
-// Curated desktop config surface: only fields a user might tune from the app.
-/**
- * Config sections a NineGate build does not own.
- *
- * model — the model comes from the subscription plan and is picked in the
- *         composer; provider and fallback-chain settings belonged to the
- *         multi-provider world that a locked build no longer has.
- * voice — every backend on that page wants the customer's own vendor key.
- *
- * Kept as a filter rather than deleted from SECTIONS so an unlocked developer
- * build still has them. Anything that navigates to a section must apply this:
- * the settings nav, the command palette, and palette field search, or a search
- * for "voice" jumps to a page that redirects away.
- */
-/**
- * Kept as an empty set on purpose.
- *
- * The model and voice sections used to be filtered out at render time. That
- * left them in the build, so every launch drew them and then removed them —
- * a visible flash of the exact pages this distribution does not have, worse on
- * a slow connection. They are deleted from SECTIONS above instead: there is
- * nothing left to hide, and nothing that can appear before something hides it.
- *
- * The set stays so the callers that consult it keep compiling, and so a future
- * section that genuinely needs hiding rather than deleting has somewhere to go.
- */
-export const LOCKED_HIDDEN_SECTIONS: ReadonlySet<string> = new Set()
 
 export const SECTIONS: DesktopConfigSection[] = [
   {

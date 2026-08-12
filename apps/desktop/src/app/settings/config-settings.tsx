@@ -31,29 +31,8 @@ import { ConfigField } from './config-field'
 import { enumOptionsFor, getNested, isExternalMemoryProvider, sectionFieldEntries, setNested } from './helpers'
 import { MemoryConnect } from './memory/connect'
 import { ProviderConfigPanel } from './memory/provider-config-panel'
-import { ModelSettings, ModelSettingsSkeleton } from './model-settings'
 import { EmptyState, ListRow, SettingsContent, SettingsSkeleton, ToggleRow } from './primitives'
 import { QuickEntrySettings } from './quick-entry-settings'
-
-// On the Voice page, only surface the sub-fields of the *selected* TTS/STT
-// provider — otherwise every provider's options render at once (the "totally
-// crazy" wall of ~30 fields). Top-level keys (tts.provider, stt.enabled,
-// voice.*) always show; STT provider fields hide entirely when STT is off.
-export function voiceFieldVisible(key: string, config: HermesConfigRecord): boolean {
-  const match = /^(tts|stt)\.([^.]+)\./.exec(key)
-
-  if (!match) {
-    return true
-  }
-
-  const [, domain, provider] = match
-
-  if (domain === 'stt' && !getNested(config, 'stt.enabled')) {
-    return false
-  }
-
-  return provider === String(getNested(config, `${domain}.provider`) ?? '')
-}
 
 export function ConfigSettings({
   activeSectionId,
@@ -278,30 +257,14 @@ export function ConfigSettings({
       )
     }
 
-    // Every section keeps its shape via a skeleton; model gets its bespoke one
-    // (its catalog fetch is the slow part), the rest the shared field rhythm.
-    if (activeSectionId === 'model') {
-      return (
-        <SettingsContent>
-          <div className="mb-6">
-            <ModelSettingsSkeleton />
-          </div>
-        </SettingsContent>
-      )
-    }
-
+    // Every section keeps its shape via the shared field rhythm.
     return <SettingsSkeleton sections={[{ rows: 6 }]} />
   }
 
-  const visibleFields = activeSectionId === 'voice' ? fields.filter(([key]) => voiceFieldVisible(key, config)) : fields
+  const visibleFields = fields
 
   return (
     <SettingsContent>
-      {activeSectionId === 'model' && (
-        <div className="mb-6">
-          <ModelSettings onMainModelChanged={onMainModelChanged} />
-        </div>
-      )}
       {/* Device-local desktop prefs (not config.yaml) — they live here since
           keeping the machine awake and the global Quick Entry chord are both
           power-user, this-computer-only knobs. */}
