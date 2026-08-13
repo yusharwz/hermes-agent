@@ -722,6 +722,23 @@ def _update_via_zip(args):
     import zipfile
     from urllib.request import urlretrieve
 
+    # A locked build must never reach here. `_run_locked_native_update` turns
+    # it away at the top of the update, but this path has a second entrance —
+    # the `except CalledProcessError` handler at the end of the update falls
+    # back to ZIP on Windows — so the refusal is repeated where the damage
+    # would actually be done. What it downloads is upstream Hermes; copying
+    # that over an Atlas install replaces the product with its own upstream.
+    try:
+        from agent.ninegate_leash import is_locked
+
+        if is_locked():
+            print("✗ Refusing to update from the upstream ZIP archive.")
+            print("  This is a locked Atlas build; its updates come from NineGate.")
+            print("  Run `atlas update`, or use Update in the app's About tab.")
+            _m().sys.exit(1)
+    except ImportError:  # pragma: no cover - leash absent in odd builds
+        pass
+
     # The ZIP fallback exists for Windows git-file-I/O breakage. It pulls a
     # static archive from GitHub, which is fine for the default "main"
     # channel but would silently ignore --branch and update from main even
@@ -788,8 +805,19 @@ def _update_via_zip(args):
                     extracted = candidate
                     break
 
-        # Copy updated files over existing installation, preserving venv/node_modules/.git
-        preserve = {"venv", "node_modules", ".git", ".env"}
+        # Copy updated files over existing installation, preserving the venv,
+        # node_modules, .git and .env.
+        #
+        # `.venv` as well as `venv`: upstream's installer makes `venv`, but
+        # `uv sync` — which is what builds an Atlas tree, and what the repair
+        # instructions tell users to run — makes `.venv`. Listing only `venv`
+        # meant this loop treated a `.venv` as an ordinary stale entry and
+        # replaced it out of existence, leaving a tree with no interpreter to
+        # run it. That is the same failure the updater already shipped once
+        # (#venv-loss, Aug 2026); `find_tree_venv` exists because both names
+        # are real and it is the only thing that should be deciding between
+        # them.
+        preserve = {"venv", ".venv", "node_modules", ".git", ".env"}
         entries = [i for i in os.listdir(extracted) if i not in preserve]
 
         # Two-phase replace (#76104). Phase 1 copies every entry — directories
@@ -3529,9 +3557,122 @@ def _normalize_managed_eol(git_cmd, repo_root):
         # Never let line-ending cleanup block an update.
         pass
 
+def _run_locked_native_update(args, gateway_mode: bool) -> bool:
+    """Update a locked Atlas build from NineGate. False when not a locked build.
+
+    WHY THIS GATE EXISTS AT ALL
+    ===========================
+    Everything below this function assumes the install is a git checkout of
+    upstream. A customer's Atlas install is neither: ``~/.atlas/atlas-agent``
+    has no ``.git``, and it is not upstream's code. Run unsealed against that
+    tree, ``hermes update`` did one of two things, both bad:
+
+    - POSIX: printed "Not a git repository. Please reinstall:" followed by
+      upstream's install URL, which reinstalls **Hermes over Atlas** — leash,
+      gateway pinning, stripped credentials and all.
+    - Windows: no ``.git`` silently selects the ZIP path, which downloads
+      ``github.com/NousResearch/hermes-agent/archive/refs/heads/main.zip`` and
+      copies it over the install. That is not an update, it is a replacement of
+      the product with the thing it was forked from, and it is reached by a
+      customer typing the ordinary update command.
+
+    So a locked build hands the whole operation to the native updater and never
+    reaches git. The dev fork is unaffected: ``ATLAS_LOCKED`` is not set there,
+    this returns False, and ``hermes update`` keeps its git behaviour.
+
+    WHY IT DELEGATES RATHER THAN UPDATES
+    ====================================
+    ``ninegate_update`` already downloads, verifies the checksum, swaps with a
+    rollback, smoke-tests, and carries ``.venv`` across the swap. Re-implementing
+    any of that here would make the venv rule true in two places, which is the
+    bug class this project keeps paying for — the venv was lost the first time
+    precisely because the installer preserved it and the updater did not.
+
+    It spawns the same detached runner the desktop app uses instead of updating
+    in-process, for the reason that runner exists: this process is running from
+    the tree about to be renamed, and its cwd may be inside it.
+    """
+    try:
+        from agent.ninegate_leash import gateway_url, is_locked, subscription_key
+    except Exception as exc:  # pragma: no cover - leash absent in odd builds
+        logger.debug("leash unavailable, staying on the git path: %s", exc)
+        return False
+
+    if not is_locked():
+        return False
+
+    from hermes_cli import ninegate_update
+
+    key = subscription_key()
+    if not key:
+        print("✗ No NineGate subscription key found.")
+        print("  Atlas updates come from NineGate, not from git. Set")
+        print("  NINEGATE_API_KEY in ~/.atlas/.env and run `atlas update` again.")
+        sys.exit(1)
+
+    before = ninegate_update.read_state()
+    if before.get("running"):
+        print("→ An update is already running (started by the app, or another shell).")
+        print(f"  {before.get('stage') or 'working'} — {before.get('percent') or 0}%")
+        print("  Watch it in the app, or re-run this once it finishes.")
+        return True
+
+    print("⚕ Updating Atlas from NineGate...")
+    print()
+
+    ninegate_update.spawn_detached(gateway_url(), key)
+
+    # The runner needs a moment to claim the job and stamp its pid. Until it
+    # does, the state file still describes the PREVIOUS update — polling
+    # naively would report that one's result as this one's, and a stale "ok"
+    # reads as an update that never ran.
+    log_path = ninegate_update.atlas_home() / "logs" / "update.log"
+    deadline = _time.time() + 30.0
+    state = before
+    while _time.time() < deadline:
+        state = ninegate_update.read_state()
+        if state.get("running") and state.get("started_at") != before.get("started_at"):
+            break
+        _time.sleep(0.5)
+    else:
+        print("✗ The update runner did not start within 30s.")
+        print(f"  Its output goes to {log_path}")
+        sys.exit(1)
+
+    last = None
+    while True:
+        stage = state.get("stage") or ""
+        mark = (stage, state.get("percent"))
+        if stage and mark != last:
+            message = state.get("message") or ""
+            print(f"  {stage} — {state.get('percent') or 0}%" + (f"  {message}" if message else ""))
+            last = mark
+        if not state.get("running"):
+            break
+        _time.sleep(1.0)
+        state = ninegate_update.read_state()
+
+    print()
+    if not state.get("ok"):
+        print(f"✗ Update failed: {state.get('error') or 'unknown error'}")
+        print("  The installation was rolled back and is unchanged.")
+        print(f"  Details: {log_path}")
+        sys.exit(1)
+
+    print(f"✓ Atlas updated to {state.get('version') or 'the latest release'}.")
+    if state.get("restart_required"):
+        print("  Restart to finish: systemctl --user restart atlas-gateway")
+
+    return True
+
+
 def _cmd_update_impl(args, gateway_mode: bool):
     """Body of ``cmd_update`` — kept separate so the wrapper can always
     restore stdio even on ``sys.exit``."""
+    # Before anything mutates the tree, and before the Hermes banner prints:
+    # a locked Atlas build updates from NineGate, never from git.
+    if _m()._run_locked_native_update(args, gateway_mode):
+        return
     # In gateway mode, use file-based IPC for prompts instead of stdin
     gw_input_fn = (
         (lambda prompt, default="": _gateway_prompt(prompt, default))
