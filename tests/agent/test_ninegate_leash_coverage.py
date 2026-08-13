@@ -66,6 +66,13 @@ LEASH_CALLERS = {
     "hermes_cli/inventory.py",
     "hermes_cli/models.py",
     "hermes_cli/moa_config.py",
+    # Enforcement, and of a kind the rest of this list does not cover: the
+    # others keep a running agent inside the leash, this one keeps the leash
+    # from being replaced. A locked build has no .git, which the update path
+    # read as a broken checkout and offered to fix by fetching upstream —
+    # reinstalling Hermes over Atlas, guards and all. Losing this guard does
+    # not leak a request; it ends the lock.
+    "hermes_cli/update_cmd.py",
     "hermes_cli/web_server.py",
     "plugins/image_gen/openai/__init__.py",
     "tools/transcription_tools.py",
