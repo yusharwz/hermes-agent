@@ -10,7 +10,7 @@ both. Except when it doesn't:
     the provider. With Feishu holding the socket, the browser hands an OAuth
     authorization code to the Feishu webhook handler. Nothing raises.
 
-The registry in hermes_constants is the single source of truth. These tests are
+The registry in atlas_constants is the single source of truth. These tests are
 what make it one: without the second test a callsite could drift back to a
 literal, and the registry would describe intentions rather than behaviour.
 """
@@ -22,9 +22,9 @@ from pathlib import Path
 
 import pytest
 
-import hermes_constants
+import atlas_constants
 
-ROOT = Path(hermes_constants.__file__).resolve().parent
+ROOT = Path(atlas_constants.__file__).resolve().parent
 
 
 #: (module, attribute holding the default, registry key)
@@ -33,7 +33,7 @@ ROOT = Path(hermes_constants.__file__).resolve().parent
 #: the case a careless edit is most likely to reintroduce a literal into.
 BINDERS = [
     ("gateway.platforms.bluebubbles", "DEFAULT_WEBHOOK_PORT", "bluebubbles_webhook"),
-    ("hermes_cli.proxy.server", "DEFAULT_PORT", "proxy"),
+    ("atlas_cli.proxy.server", "DEFAULT_PORT", "proxy"),
     ("plugins.platforms.wecom.callback_adapter", "DEFAULT_PORT", "wecom_callback"),
     ("gateway.platforms.msgraph_webhook", "DEFAULT_PORT", "msgraph_webhook"),
     ("plugins.platforms.line.adapter", "DEFAULT_WEBHOOK_PORT", "line_webhook"),
@@ -44,9 +44,9 @@ BINDERS = [
 
 def test_every_default_port_is_distinct():
     """The whole point. Two equal values here is the bug class, restored."""
-    counts = Counter(hermes_constants.DEFAULT_PORTS.values())
+    counts = Counter(atlas_constants.DEFAULT_PORTS.values())
     duplicates = {
-        port: sorted(k for k, v in hermes_constants.DEFAULT_PORTS.items() if v == port)
+        port: sorted(k for k, v in atlas_constants.DEFAULT_PORTS.items() if v == port)
         for port, n in counts.items()
         if n > 1
     }
@@ -54,7 +54,7 @@ def test_every_default_port_is_distinct():
         f"these defaults collide: {duplicates}. Two subsystems on one port means "
         "the second fails to bind — or, if one of them is an OAuth redirect, "
         "silently receives the other's traffic. Give one of them a free number "
-        "in hermes_constants.DEFAULT_PORTS."
+        "in atlas_constants.DEFAULT_PORTS."
     )
 
 
@@ -62,7 +62,7 @@ def test_every_default_port_is_distinct():
 def test_binder_reads_the_registry(module_name, attribute, registry_key):
     """The module's default must BE the registry value, not merely equal it today."""
     module = importlib.import_module(module_name)
-    assert getattr(module, attribute) == hermes_constants.DEFAULT_PORTS[registry_key]
+    assert getattr(module, attribute) == atlas_constants.DEFAULT_PORTS[registry_key]
 
 
 @pytest.mark.parametrize("module_name,attribute,registry_key", BINDERS)
@@ -86,7 +86,7 @@ def test_binder_does_not_hardcode_a_port_literal(module_name, attribute, registr
         assert not isinstance(node.value, ast.Constant), (
             f"{module_name}.{attribute} is assigned the literal "
             f"{getattr(node.value, 'value', '?')!r}. Import it from "
-            f"hermes_constants.DEFAULT_{registry_key.upper()}_PORT instead, so a "
+            f"atlas_constants.DEFAULT_{registry_key.upper()}_PORT instead, so a "
             "collision is caught here rather than on a customer's machine."
         )
         return
@@ -95,17 +95,17 @@ def test_binder_does_not_hardcode_a_port_literal(module_name, attribute, registr
 
 
 def test_registry_covers_every_constant_named_default_port():
-    """A constant added to hermes_constants but not to DEFAULT_PORTS is invisible
+    """A constant added to atlas_constants but not to DEFAULT_PORTS is invisible
     to test_every_default_port_is_distinct, which would quietly stop being a
     collision check for the new port."""
     declared = {
         name: value
-        for name, value in vars(hermes_constants).items()
+        for name, value in vars(atlas_constants).items()
         if name.startswith("DEFAULT_")
         and name.endswith("_PORT")
         and isinstance(value, int)
     }
-    registered = set(hermes_constants.DEFAULT_PORTS.values())
+    registered = set(atlas_constants.DEFAULT_PORTS.values())
     missing = {n: v for n, v in declared.items() if v not in registered}
     assert not missing, (
         f"these constants are not in DEFAULT_PORTS: {missing}. Register them, or "

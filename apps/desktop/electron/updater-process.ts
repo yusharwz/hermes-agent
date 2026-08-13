@@ -25,10 +25,10 @@ function stagedFileExists(candidate: string): boolean {
 /**
  * Decide which staged installer binary — if any — may be handed an update.
  *
- * The Tauri installer self-copies into HERMES_HOME on *every* platform
- * (`hermes-setup.exe` on Windows, `hermes-setup` elsewhere — see
+ * The Tauri installer self-copies into ATLAS_HOME on *every* platform
+ * (`atlas-setup.exe` on Windows, `atlas-setup` elsewhere — see
  * apps/bootstrap-installer `paths::installer_dest` and
- * `bootstrap::copy_self_to_hermes_home`), so finding that binary on macOS or
+ * `bootstrap::copy_self_to_atlas_home`), so finding that binary on macOS or
  * Linux is expected, not leftover junk.
  *
  * Handing an update to it is nonetheless a Windows-only policy. Windows needs
@@ -36,7 +36,7 @@ function stagedFileExists(candidate: string): boolean {
  * running desktop from rewriting its own bits; macOS and Linux have no such
  * lock and update in place through applyUpdatesPosixInApp(). Off Windows the
  * hand-off therefore buys nothing and costs a great deal: a staged binary older
- * than the hand-off protocol holds the update marker, spawns `hermes update`,
+ * than the hand-off protocol holds the update marker, spawns `atlas update`,
  * and that child refuses its own parent — wedging the in-app Update button for
  * good, with no route (update, re-download, reinstall) to a newer binary
  * (#74836). Returning null off Windows is what routes those platforms to the
@@ -46,7 +46,7 @@ function stagedFileExists(candidate: string): boolean {
  * install that never went through the installer); callers degrade gracefully.
  */
 export function resolveStagedUpdaterBinary(
-  hermesHome: string,
+  atlasHome: string,
   deps: ResolveStagedUpdaterBinaryDeps = {}
 ): string | null {
   const isWindows = deps.isWindows ?? process.platform === 'win32'
@@ -56,7 +56,7 @@ export function resolveStagedUpdaterBinary(
   }
 
   const fileExists = deps.fileExists ?? stagedFileExists
-  const candidate = path.join(hermesHome, 'hermes-setup.exe')
+  const candidate = path.join(atlasHome, 'atlas-setup.exe')
 
   return fileExists(candidate) ? candidate : null
 }

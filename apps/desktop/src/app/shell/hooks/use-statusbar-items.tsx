@@ -43,7 +43,7 @@ import {
   $updateApply,
   $updateStatus
 } from '@/store/updates'
-import type { StatusResponse, UsageStats } from '@/types/hermes'
+import type { StatusResponse, UsageStats } from '@/types/atlas'
 
 import { CRON_ROUTE, WEBHOOKS_ROUTE } from '../../routes'
 import type { StatusbarItem } from '../statusbar-controls'

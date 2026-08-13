@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { renderToScreen } from '../../packages/hermes-ink/src/ink/render-to-screen.js'
-import { cellAtIndex } from '../../packages/hermes-ink/src/ink/screen.js'
+import { renderToScreen } from '../../packages/atlas-ink/src/ink/render-to-screen.js'
+import { cellAtIndex } from '../../packages/atlas-ink/src/ink/screen.js'
 import { ShimmerRows, shimmerSegments, subscribeShimmerClock } from '../components/loaders.js'
 
 describe('ShimmerRows leniency (agent-authored calls)', () => {
@@ -12,7 +12,7 @@ describe('ShimmerRows leniency (agent-authored calls)', () => {
       createElement(ShimmerRows, {
         rows: 3,
         width: 20,
-        t: { color: { completionBg: '#1a1a2e', label: '#DAA520', muted: '#B8860B' } }
+        t: { color: { completionBg: '#1a1a2e', label: '#29A6C2', muted: '#14788F' } }
       }),
       30
     )

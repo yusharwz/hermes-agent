@@ -37,7 +37,7 @@ export function UpdateRestartModal() {
     setRestarting(true)
 
     try {
-      await window.hermesDesktop.restartApp(prompt.installerPath)
+      await window.atlasDesktop.restartApp(prompt.installerPath)
     } catch (error) {
       setRestarting(false)
       notifyError(error, 'Atlas tidak bisa dimulai ulang. Tutup dan buka kembali secara manual.')

@@ -73,7 +73,7 @@ def test_saved_policy_does_not_contradict_a_saved_allowlist():
     lines above the allowlist it then saved — setting a list and disabling it
     in the same transaction."""
     src = (
-        Path(__file__).resolve().parents[2] / "hermes_cli" / "web_server.py"
+        Path(__file__).resolve().parents[2] / "atlas_cli" / "web_server.py"
     ).read_text(encoding="utf-8")
 
     assert 'save_env_value("WHATSAPP_DM_POLICY", "pairing")' not in src, (

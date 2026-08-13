@@ -1,15 +1,15 @@
 # Optional Skills
 
-Official skills maintained by Nous Research that are **not activated by default**.
+Official skills maintained by Dritech that are **not activated by default**.
 
-These skills ship with the hermes-agent repository but are not copied to
-`~/.hermes/skills/` during setup. They are discoverable via the Skills Hub:
+These skills ship with the atlas-agent repository but are not copied to
+`~/.atlas/skills/` during setup. They are discoverable via the Skills Hub:
 
 ```bash
-hermes skills browse               # browse all skills, official shown first
-hermes skills browse --source official  # browse only official optional skills
-hermes skills search <query>       # finds optional skills labeled "official"
-hermes skills install <identifier> # copies to ~/.hermes/skills/ and activates
+atlas skills browse               # browse all skills, official shown first
+atlas skills browse --source official  # browse only official optional skills
+atlas skills search <query>       # finds optional skills labeled "official"
+atlas skills install <identifier> # copies to ~/.atlas/skills/ and activates
 ```
 
 ## Why optional?

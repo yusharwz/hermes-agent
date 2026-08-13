@@ -73,8 +73,8 @@ nous = NousProfile(
     name="nous",
     aliases=("nous-portal", "nousresearch"),
     env_vars=("NOUS_API_KEY",),
-    display_name="Nous Research",
-    description="Nous Research — Hermes model family",
+    display_name="Dritech",
+    description="Dritech — Atlas model family",
     signup_url="https://nousresearch.com/",
     fallback_models=(
         "hermes-3-405b",

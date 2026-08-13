@@ -33,7 +33,7 @@ from gateway.platforms.base import (
 )
 from .media_cache import ext_for_mime
 from gateway.platforms.helpers import compile_mention_patterns, strip_markdown
-from hermes_constants import DEFAULT_BLUEBUBBLES_WEBHOOK_PORT
+from atlas_constants import DEFAULT_BLUEBUBBLES_WEBHOOK_PORT
 
 # Historical BlueBubbles mime→ext maps, preserved verbatim as overrides for
 # the shared dispatch in gateway.platforms.media_cache. Both maps are
@@ -74,11 +74,11 @@ MAX_TEXT_LENGTH = 4000
 
 # BlueBubbles/iMessage does not expose a stable bot mention identity like
 # Slack (<@U...>), Telegram (@botname), or Matrix (MXID). When users opt into
-# group mention gating without custom aliases, use conservative Hermes wake
+# group mention gating without custom aliases, use conservative Atlas wake
 # words so `require_mention: true` is a one-line enablement path.
 DEFAULT_MENTION_PATTERNS = [
-    r"(?<![\w@])@?hermes\s+agent\b[,:\-]?",
-    r"(?<![\w@])@?hermes\b[,:\-]?",
+    r"(?<![\w@])@?atlas\s+agent\b[,:\-]?",
+    r"(?<![\w@])@?atlas\b[,:\-]?",
 ]
 
 # Tapback reaction codes (BlueBubbles associatedMessageType values)
@@ -193,7 +193,7 @@ class BlueBubblesAdapter(BasePlatformAdapter):
         """Compile group-mention wake words from config/env.
 
         ``raw`` is a list (from config or env JSON), a string (raw env var:
-        JSON list, or comma/newline-separated), or None (use Hermes defaults).
+        JSON list, or comma/newline-separated), or None (use Atlas defaults).
         """
         return compile_mention_patterns(
             raw,

@@ -18,7 +18,7 @@ import json
 
 import pytest
 
-from hermes_constants import (
+from atlas_constants import (
     WHATSAPP_LOGGED_OUT_MARKER,
     clear_whatsapp_session,
     whatsapp_session_is_linked,

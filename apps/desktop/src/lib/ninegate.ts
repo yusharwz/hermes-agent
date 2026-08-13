@@ -42,7 +42,7 @@ type StatusPayload = {
 }
 
 export async function fetchNineGateStatus(): Promise<NineGateStatus> {
-  const payload = await window.hermesDesktop.api<StatusPayload>({ path: '/api/ninegate' })
+  const payload = await window.atlasDesktop.api<StatusPayload>({ path: '/api/ninegate' })
 
   return {
     gateway: payload.gateway ?? '',

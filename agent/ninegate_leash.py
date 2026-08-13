@@ -90,7 +90,7 @@ _NEVER_STRIP = frozenset(_PINNED) | frozenset({
 })
 
 #: Every environment variable that can route MODEL INFERENCE, taken from
-#: ``hermes_cli.provider_catalog`` — the same catalog the model picker and the
+#: ``atlas_cli.provider_catalog`` — the same catalog the model picker and the
 #: provider settings pages are built from.
 #:
 #: Written down rather than imported, because :func:`engage` runs at ``import
@@ -769,7 +769,7 @@ def refuses_env_write(key: str) -> bool:
 
     The pin in :func:`engage` only runs at import. A value written into ``.env``
     — and into the live process — after that would survive it, so the writer
-    every surface shares (``hermes env``, the desktop app's ``PUT /api/env``,
+    every surface shares (``atlas env``, the desktop app's ``PUT /api/env``,
     the web dashboard) consults this before saving.
 
     ``NINEGATE_API_KEY`` is deliberately writable: changing which subscription

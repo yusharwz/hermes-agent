@@ -6,7 +6,7 @@ import { useSearchParams } from 'react-router'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { getElevenLabsVoices, getHermesConfigSchema, saveHermesConfig } from '@/hermes'
+import { getElevenLabsVoices, getAtlasConfigSchema, saveAtlasConfig } from '@/atlas'
 import { useI18n } from '@/i18n'
 import { triggerHaptic } from '@/lib/haptics'
 import {
@@ -21,9 +21,9 @@ import {
 import { $keepAwake, setKeepAwake } from '@/store/keep-awake'
 import { notify, notifyError } from '@/store/notifications'
 import { repoDiscoveryPolicyFromConfig, repoDiscoveryPolicySignature, scanAndRecordRepos } from '@/store/projects'
-import type { ConfigFieldSchema, HermesConfigRecord } from '@/types/hermes'
+import type { ConfigFieldSchema, AtlasConfigRecord } from '@/types/atlas'
 
-import { setHermesConfigCache, useHermesConfigRecord } from '../hooks/use-config-record'
+import { setAtlasConfigCache, useAtlasConfigRecord } from '../hooks/use-config-record'
 import { useOnProfileSwitch } from '../hooks/use-on-profile-switch'
 import { PanelEmpty } from '../overlays/panel'
 
@@ -51,16 +51,16 @@ export function ConfigSettings({
   // The editable draft is local (debounced autosave watches it), but it's seeded
   // from — and saved back through — the shared config cache, so edits are visible
   // in the MCP/model surfaces and reopening the page doesn't reload-flash.
-  const [config, setConfig] = useState<HermesConfigRecord | null>(null)
-  const { data: loadedConfig, isError: configLoadFailed, refetch: refetchConfig } = useHermesConfigRecord()
+  const [config, setConfig] = useState<AtlasConfigRecord | null>(null)
+  const { data: loadedConfig, isError: configLoadFailed, refetch: refetchConfig } = useAtlasConfigRecord()
 
   const {
     data: schemaResponse,
     isError: schemaFailed,
     refetch: refetchSchema
   } = useQuery({
-    queryKey: ['hermes-config-schema'],
-    queryFn: getHermesConfigSchema,
+    queryKey: ['atlas-config-schema'],
+    queryFn: getAtlasConfigSchema,
     staleTime: 5 * 60 * 1000
   })
 
@@ -129,7 +129,7 @@ export function ConfigSettings({
     const t = window.setTimeout(() => {
       void (async () => {
         try {
-          const result = await saveHermesConfig(config)
+          const result = await saveAtlasConfig(config)
 
           if (!result.ok) {
             throw new Error(c.autosaveFailed)
@@ -137,7 +137,7 @@ export function ConfigSettings({
 
           // Mirror the saved record into the shared cache so MCP/model surfaces
           // reflect the edit without their own refetch.
-          setHermesConfigCache(config)
+          setAtlasConfigCache(config)
 
           if (saveVersionRef.current === v) {
             const discoverySignature = repoDiscoveryPolicySignature(repoDiscoveryPolicyFromConfig(config))
@@ -161,7 +161,7 @@ export function ConfigSettings({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- copy is stable; avoid re-scheduling autosave on locale change
   }, [config, onConfigSaved, saveVersion])
 
-  const updateConfig = (next: HermesConfigRecord) => {
+  const updateConfig = (next: AtlasConfigRecord) => {
     saveVersionRef.current += 1
     setConfig(next)
     setSaveVersion(saveVersionRef.current)

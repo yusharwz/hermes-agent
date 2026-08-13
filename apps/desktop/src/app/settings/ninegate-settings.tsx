@@ -55,7 +55,7 @@ export function NineGateSettings() {
       // The backend checks the key against the gateway before saving it. A
       // truncated paste looks exactly like a working key until the next
       // message fails, by which point the old one is gone.
-      const result = await window.hermesDesktop.api<{ ok: boolean; key_redacted: string }>({
+      const result = await window.atlasDesktop.api<{ ok: boolean; key_redacted: string }>({
         body: { api_key: key },
         method: 'POST',
         path: '/api/ninegate/login'
@@ -80,7 +80,7 @@ export function NineGateSettings() {
     setBusy('logout')
 
     try {
-      await window.hermesDesktop.api({ method: 'POST', path: '/api/ninegate/logout' })
+      await window.atlasDesktop.api({ method: 'POST', path: '/api/ninegate/logout' })
       setStatus(current => (current ? { ...current, keyPresent: false, keyRedacted: null } : current))
       notify({ message: 'API key dihapus dari perangkat ini.' })
     } catch (err) {

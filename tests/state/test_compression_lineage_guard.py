@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from hermes_state import SessionDB
+from atlas_state import SessionDB
 
 
 @pytest.fixture()

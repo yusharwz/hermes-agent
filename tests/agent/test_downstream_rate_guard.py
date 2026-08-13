@@ -11,10 +11,10 @@ import pytest
 @pytest.fixture
 def rate_guard_env(tmp_path, monkeypatch):
     """Isolate rate guard state to a temp directory."""
-    hermes_home = str(tmp_path / ".hermes")
-    os.makedirs(hermes_home, exist_ok=True)
-    monkeypatch.setenv("HERMES_HOME", hermes_home)
-    return hermes_home
+    atlas_home = str(tmp_path / ".atlas")
+    os.makedirs(atlas_home, exist_ok=True)
+    monkeypatch.setenv("ATLAS_HOME", atlas_home)
+    return atlas_home
 
 
 class TestExtractUpstreamTag:

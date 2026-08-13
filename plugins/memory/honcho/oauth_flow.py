@@ -2,7 +2,7 @@
 
 ``begin_authorization`` / ``complete_authorization`` are the transport-agnostic
 core: the code can arrive via the loopback listener here or a future
-``hermes://`` handler. Endpoints are env-overridable with local-dev defaults
+``atlas://`` handler. Endpoints are env-overridable with local-dev defaults
 because ``/authorize`` (dashboard) and ``/oauth/token`` (API) live on
 different origins.
 """
@@ -24,11 +24,11 @@ from urllib.parse import parse_qs, urlencode, urlparse
 
 from plugins.memory.honcho import oauth
 from plugins.memory.honcho.client import resolve_active_host, resolve_config_path
-from hermes_constants import DEFAULT_HONCHO_OAUTH_LOOPBACK_PORT
+from atlas_constants import DEFAULT_HONCHO_OAUTH_LOOPBACK_PORT
 
 logger = logging.getLogger(__name__)
 
-# The loopback redirect registered for the Hermes OAuth client. IP-literal so
+# The loopback redirect registered for the Atlas OAuth client. IP-literal so
 # the browser can't resolve the advertised host to ::1 and miss the IPv4 bind.
 LOOPBACK_HOST = "127.0.0.1"
 LOOPBACK_PORT = DEFAULT_HONCHO_OAUTH_LOOPBACK_PORT
@@ -75,7 +75,7 @@ _LOCAL_TOKEN_URL = "http://localhost:8000/oauth/token"
 # One OAuth client for every surface. Consent branding/UI adapt via the
 # ``source`` query param (not a separate client_id), so there's a single grant
 # identity to refresh — no clientId-vs-refresh-token desync to revoke the grant.
-_DEFAULT_CLIENT_ID = "hermes-agent"
+_DEFAULT_CLIENT_ID = "atlas-agent"
 
 
 def _is_loopback_url(url: str | None) -> bool:
@@ -160,7 +160,7 @@ def begin_authorization(
     """Start an authorization: return ``(authorize_url, state)`` and stash PKCE.
 
     ``source`` tags the authorize link with the initiating surface
-    (``hermes-desktop`` / ``hermes-cli``) so the consent side can attribute
+    (``atlas-desktop`` / ``atlas-cli``) so the consent side can attribute
     connects and vary behavior per surface. ``config_path`` is a home-relative
     *display* string for the consent screen (never the absolute path); callers
     pass the actual write path separately to ``complete_authorization``.
@@ -243,7 +243,7 @@ _CALLBACK_HTML = (
     b"<title>Honcho connected</title>"
     b"<body style='font:14px ui-monospace,monospace;background:#0b0e14;color:#c9d1d9;"
     b"display:flex;align-items:center;justify-content:center;height:100vh;margin:0'>"
-    b"<div>Connected to Honcho. You can close this tab and return to Hermes.</div>"
+    b"<div>Connected to Honcho. You can close this tab and return to Atlas.</div>"
 )
 
 _CALLBACK_ERROR_HTML = (
@@ -626,7 +626,7 @@ def start_loopback_flow_background(
     *,
     config_path: Path | None = None,
     host: str | None = None,
-    source: str = "hermes-desktop",
+    source: str = "atlas-desktop",
     timeout: float = 300.0,
 ) -> dict[str, str]:
     """Launch the loopback flow in a daemon thread; returns the initial status.
@@ -636,7 +636,7 @@ def start_loopback_flow_background(
     """
     global _flow_thread
     # Resolve under the caller's profile scope NOW — the worker thread outlives
-    # the request, where a context-local HERMES_HOME override can't reach.
+    # the request, where a context-local ATLAS_HOME override can't reach.
     config_path = config_path or resolve_config_path()
     host = host or resolve_active_host()
     with _status_lock:

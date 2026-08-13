@@ -1,21 +1,21 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { HermesReadDirResult } from '@/global'
-import type * as HermesModule from '@/hermes'
+import type { AtlasReadDirResult } from '@/global'
+import type * as AtlasModule from '@/atlas'
 
 import { discoverRuntimePlugins, watchRuntimePlugins } from './runtime-loader'
 
-// getStatus would supply the connected backend's hermes_home — a REMOTE path in
+// getStatus would supply the connected backend's atlas_home — a REMOTE path in
 // remote mode. The disk scanner must NOT derive the plugin root from it (#66899).
-const getStatus = vi.fn(async () => ({ hermes_home: '/remote/box/.hermes' }))
+const getStatus = vi.fn(async () => ({ atlas_home: '/remote/box/.atlas' }))
 
-vi.mock('@/hermes', async importActual => ({
-  ...(await importActual<typeof HermesModule>()),
+vi.mock('@/atlas', async importActual => ({
+  ...(await importActual<typeof AtlasModule>()),
   getStatus: () => getStatus()
 }))
 
 const desktopPluginsRoot = vi.fn<() => Promise<string>>()
-const readDir = vi.fn<(path: string) => Promise<HermesReadDirResult>>()
+const readDir = vi.fn<(path: string) => Promise<AtlasReadDirResult>>()
 const watchDirectory = vi.fn<(path: string) => Promise<{ id: string }>>()
 const onPreviewFileChanged = vi.fn()
 
@@ -25,7 +25,7 @@ beforeEach(() => {
   watchDirectory.mockReset()
   onPreviewFileChanged.mockReset()
   getStatus.mockClear()
-  ;(window as unknown as { hermesDesktop: unknown }).hermesDesktop = {
+  ;(window as unknown as { atlasDesktop: unknown }).atlasDesktop = {
     desktopPluginsRoot,
     onPreviewFileChanged,
     readDir,
@@ -34,21 +34,21 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  delete (window as unknown as { hermesDesktop?: unknown }).hermesDesktop
+  delete (window as unknown as { atlasDesktop?: unknown }).atlasDesktop
 })
 
 describe('scanDiskPlugins (#66899)', () => {
-  it('scans the Electron-resolved local root, never the backend hermes_home', async () => {
-    desktopPluginsRoot.mockResolvedValue('/local/.hermes/desktop-plugins')
+  it('scans the Electron-resolved local root, never the backend atlas_home', async () => {
+    desktopPluginsRoot.mockResolvedValue('/local/.atlas/desktop-plugins')
     readDir.mockResolvedValue({ entries: [] })
 
     await discoverRuntimePlugins()
 
     expect(desktopPluginsRoot).toHaveBeenCalled()
-    expect(readDir).toHaveBeenCalledWith('/local/.hermes/desktop-plugins')
-    // The remote backend's hermes_home must never feed the local plugin scan.
+    expect(readDir).toHaveBeenCalledWith('/local/.atlas/desktop-plugins')
+    // The remote backend's atlas_home must never feed the local plugin scan.
     expect(getStatus).not.toHaveBeenCalled()
-    expect(readDir).not.toHaveBeenCalledWith('/remote/box/.hermes/desktop-plugins')
+    expect(readDir).not.toHaveBeenCalledWith('/remote/box/.atlas/desktop-plugins')
   })
 
   it('no-ops when the resolver yields no local root', async () => {
@@ -61,8 +61,8 @@ describe('scanDiskPlugins (#66899)', () => {
 })
 
 describe('watchRuntimePlugins dir watch (#66899)', () => {
-  it('watches the Electron-resolved local root, never the backend hermes_home', async () => {
-    desktopPluginsRoot.mockResolvedValue('/local/.hermes/desktop-plugins')
+  it('watches the Electron-resolved local root, never the backend atlas_home', async () => {
+    desktopPluginsRoot.mockResolvedValue('/local/.atlas/desktop-plugins')
     readDir.mockResolvedValue({ entries: [] })
     watchDirectory.mockResolvedValue({ id: 'watch-1' })
 
@@ -70,8 +70,8 @@ describe('watchRuntimePlugins dir watch (#66899)', () => {
     // Drain the async scan + startDirWatch chains.
     await vi.waitFor(() => expect(watchDirectory).toHaveBeenCalled())
 
-    expect(watchDirectory).toHaveBeenCalledWith('/local/.hermes/desktop-plugins')
-    expect(watchDirectory).not.toHaveBeenCalledWith('/remote/box/.hermes/desktop-plugins')
+    expect(watchDirectory).toHaveBeenCalledWith('/local/.atlas/desktop-plugins')
+    expect(watchDirectory).not.toHaveBeenCalledWith('/remote/box/.atlas/desktop-plugins')
     expect(getStatus).not.toHaveBeenCalled()
   })
 })

@@ -1,0 +1,1551 @@
+"""Shared constants for Atlas Agent.
+
+Import-safe module with no dependencies — can be imported from anywhere
+without risk of circular imports.
+"""
+
+import os
+import shutil
+import stat
+import sys
+from contextvars import ContextVar, Token
+from pathlib import Path
+
+
+_profile_fallback_warned: bool = False
+_UNSET = object()
+_ATLAS_HOME_OVERRIDE: ContextVar[str | object] = ContextVar(
+    "_ATLAS_HOME_OVERRIDE", default=_UNSET
+)
+
+# ── TUI busy-indicator styles ─────────────────────────────────────────
+# Single source of truth shared by the CLI /indicator command, the TUI
+# gateway config handler, and the /help command registry. Keep in sync
+# with ``INDICATOR_STYLES`` / ``DEFAULT_INDICATOR_STYLE`` in
+# ``ui-tui/src/app/interfaces.ts`` on the frontend side.
+INDICATOR_STYLES: tuple[str, ...] = ("ascii", "emoji", "kaomoji", "unicode")
+DEFAULT_INDICATOR_STYLE: str = "kaomoji"
+
+
+def set_atlas_home_override(path: str | Path | None) -> Token:
+    """Set a context-local Atlas home override and return its reset token.
+
+    This is for in-process, per-task scoping.  It deliberately does not mutate
+    ``os.environ`` because that is shared by every thread in the process.
+    """
+    value: str | object = _UNSET if path is None else str(path)
+    return _ATLAS_HOME_OVERRIDE.set(value)
+
+
+def reset_atlas_home_override(token: Token) -> None:
+    """Restore the previous context-local Atlas home override."""
+    _ATLAS_HOME_OVERRIDE.reset(token)
+
+
+def get_atlas_home_override() -> str | None:
+    """Return the active context-local Atlas home override, if any."""
+    override = _ATLAS_HOME_OVERRIDE.get()
+    if override is _UNSET or not override:
+        return None
+    return str(override)
+
+
+def _get_platform_default_atlas_home() -> Path:
+    """Return the platform-native default Atlas home path."""
+    if sys.platform == "win32":
+        local_appdata = os.environ.get("LOCALAPPDATA", "").strip()
+        base = Path(local_appdata) if local_appdata else Path.home() / "AppData" / "Local"
+        return base / "atlas"
+    return Path.home() / ".atlas"
+
+
+def _atlas_home_from_env() -> Path:
+    """Resolve ATLAS_HOME from the process environment only.
+
+    Reads the ``ATLAS_HOME`` env var, falling back to the platform-native
+    default.  Deliberately ignores the context-local override installed by
+    :func:`set_atlas_home_override`, so this reflects the process/launch
+    scope rather than a per-task profile.  Shared by :func:`get_atlas_home`
+    and :func:`get_process_atlas_home` so the two never drift.
+    """
+    val = os.environ.get("ATLAS_HOME", "").strip()
+    if val:
+        return Path(val)
+    return _get_platform_default_atlas_home()
+
+
+def _warn_profile_fallback_once() -> None:
+    """Warn once when falling back to the default home while a profile is active.
+
+    Guard: if a non-default profile is sticky-active but ``ATLAS_HOME`` is
+    unset, the fallback to the default profile is almost certainly wrong.
+    """
+    global _profile_fallback_warned
+    if _profile_fallback_warned:
+        return
+    try:
+        fallback_home = _get_platform_default_atlas_home()
+        active_path = fallback_home / "active_profile"
+        active = active_path.read_text(encoding="utf-8").strip() if active_path.exists() else ""
+    except (UnicodeDecodeError, OSError):
+        active = ""
+    if active and active != "default":
+        _profile_fallback_warned = True
+        # Write directly to stderr.  We intentionally do NOT route this
+        # through ``logging`` because (a) this function is called at
+        # module-import time from 30+ sites, often before logging is
+        # configured, and (b) root-logger propagation would double-emit
+        # on consoles where a StreamHandler is already attached.
+        msg = (
+            f"[ATLAS_HOME fallback] ATLAS_HOME is unset but active "
+            f"profile is {active!r}. Falling back to {fallback_home}, which "
+            f"is the DEFAULT profile — not {active!r}. Any data this "
+            f"process writes will land in the wrong profile. The "
+            f"subprocess spawner should pass ATLAS_HOME explicitly "
+            f"(see issue #18594)."
+        )
+        try:
+            sys.stderr.write(msg + "\n")
+            sys.stderr.flush()
+        except Exception:
+            pass
+
+
+def get_atlas_home() -> Path:
+    """Return the Atlas home directory (default: platform-native path).
+
+    Resolution order: context-local override (see
+    :func:`set_atlas_home_override`) → ``ATLAS_HOME`` env var → the
+    platform-native default.  This is the single source of truth — all other
+    copies should import this.
+
+    When ``ATLAS_HOME`` is unset but an ``active_profile`` file indicates
+    a non-default profile is active, logs a loud one-shot warning to
+    ``errors.log`` so cross-profile data corruption is diagnosable instead
+    of silent.  Behavior is unchanged otherwise — we still return
+    the platform-native default — because raising here would brick 30+ module-level
+    callers that import this at load time.  Subprocess spawners are
+    expected to propagate ``ATLAS_HOME`` explicitly (see the systemd
+    template in ``atlas_cli/gateway.py`` and the kanban dispatcher in
+    ``atlas_cli/kanban_db.py``).  See https://github.com/NousResearch/hermes-agent/issues/18594.
+    """
+    override = get_atlas_home_override()
+    if override:
+        return Path(override)
+
+    if not os.environ.get("ATLAS_HOME", "").strip():
+        _warn_profile_fallback_once()
+
+    return _atlas_home_from_env()
+
+
+def get_process_atlas_home() -> Path:
+    """Return the Atlas home for the running process, ignoring task overrides.
+
+    Unlike :func:`get_atlas_home`, this never follows the context-local
+    override set by :func:`set_atlas_home_override`.  It resolves only the
+    process ``ATLAS_HOME`` env var (falling back to the platform default),
+    so it reflects the scope the process was launched under **as long as
+    nothing mutates ``os.environ`` in-process**.
+
+    Use this for machine/process-level dashboard-owned assets — theme YAML,
+    dashboard plugin manifests — that live under the server's launch home and
+    must stay visible even while a request is scoped to another profile (e.g.
+    the embedded ``/chat`` running under ``--open-profile``).  Do NOT use it
+    for genuinely profile-scoped data (memories, backups, checkpoints,
+    provider config) — those should keep following the override.
+    """
+    return _atlas_home_from_env()
+
+
+def get_default_atlas_root() -> Path:
+    """Return the root Atlas directory for profile-level operations.
+
+    In standard deployments this is the platform-native Atlas home
+    (``~/.atlas`` on POSIX, ``%LOCALAPPDATA%\\atlas`` on native Windows).
+
+    In Docker or custom deployments where ``ATLAS_HOME`` points outside
+    ``~/.atlas`` (e.g. ``/opt/data``), returns ``ATLAS_HOME`` directly
+    — that IS the root.
+
+    In profile mode where ``ATLAS_HOME`` is ``<root>/profiles/<name>``,
+    returns ``<root>`` so that ``profile list`` can see all profiles.
+    Works both for standard (``~/.atlas/profiles/coder``) and Docker
+    (``/opt/data/profiles/coder``) layouts.
+
+    Import-safe — no dependencies beyond stdlib.
+    """
+    native_home = _get_platform_default_atlas_home()
+    env_home = os.environ.get("ATLAS_HOME", "")
+    if not env_home:
+        return native_home
+    env_path = Path(env_home)
+    try:
+        env_path.resolve().relative_to(native_home.resolve())
+        # ATLAS_HOME is under ~/.atlas (normal or profile mode)
+        return native_home
+    except ValueError:
+        pass
+
+    # Docker / custom deployment.
+    # Check if this is a profile path: <root>/profiles/<name>
+    # If the immediate parent dir is named "profiles", the root is
+    # the grandparent — this covers Docker profiles correctly.
+    if env_path.parent.name == "profiles":
+        return env_path.parent.parent
+
+    # Not a profile path — ATLAS_HOME itself is the root
+    return env_path
+
+
+def get_optional_skills_dir(default: Path | None = None) -> Path:
+    """Return the optional-skills directory, honoring package-manager wrappers.
+
+    Packaged installs may ship ``optional-skills`` outside the Python package
+    tree and expose it via ``ATLAS_OPTIONAL_SKILLS``.
+    """
+    override = os.getenv("ATLAS_OPTIONAL_SKILLS", "").strip()
+    if override:
+        return Path(override)
+    if default is not None:
+        return default
+    return get_atlas_home() / "optional-skills"
+
+
+def get_optional_mcps_dir(default: Path | None = None) -> Path:
+    """Return the optional-mcps directory, honoring package-manager wrappers.
+
+    Mirrors :func:`get_optional_skills_dir` for the MCP catalog (Nous-approved
+    Model Context Protocol servers shipped with the repo but disabled by
+    default). Packaged installs may ship ``optional-mcps`` outside the Python
+    package tree and expose it via ``ATLAS_OPTIONAL_MCPS``.
+    """
+    override = os.getenv("ATLAS_OPTIONAL_MCPS", "").strip()
+    if override:
+        return Path(override)
+    if default is not None:
+        return default
+    return get_atlas_home() / "optional-mcps"
+
+
+def get_bundled_skills_dir(default: Path | None = None) -> Path:
+    """Return the bundled skills directory for source and packaged installs.
+
+    Resolution order:
+        1. ``ATLAS_BUNDLED_SKILLS`` env var (Nix wrapper / explicit override)
+        2. Caller-supplied ``default`` (typically the source-checkout path)
+        3. ``<ATLAS_HOME>/skills`` last-resort
+    """
+    override = os.getenv("ATLAS_BUNDLED_SKILLS", "").strip()
+    if override:
+        return Path(override)
+    if default is not None:
+        return default
+    return get_atlas_home() / "skills"
+
+
+def get_atlas_dir(
+    new_subpath: str,
+    old_name: str,
+    *,
+    home: Path | None = None,
+) -> Path:
+    """Resolve a Atlas subdirectory with backward compatibility.
+
+    New installs get the consolidated layout (e.g. ``cache/images``).
+    Existing installs that already have the old path (e.g. ``image_cache``)
+    keep using it — no migration required.
+
+    A bare empty ``<old_name>/`` directory does **not** count as "the
+    legacy install is in use" — install scaffolds, manual ``mkdir`` work,
+    and cleared-then-abandoned locations all create empty stubs that
+    would otherwise silently shadow real data populated at
+    ``<new_subpath>/``. See #27602 for the pairing-store regression where
+    a dormant empty ``pairing/`` orphaned approved-user data in
+    ``platforms/pairing/``.
+
+    Args:
+        new_subpath: Preferred path relative to ATLAS_HOME (e.g. ``"cache/images"``).
+        old_name: Legacy path relative to ATLAS_HOME (e.g. ``"image_cache"``).
+        home: Optional explicit Atlas home. Profile-aware callers that manage
+            more than one home in the same process use this instead of
+            temporarily mutating the process or context-local ATLAS_HOME.
+
+    Returns:
+        Absolute ``Path`` — legacy location if it exists with content,
+        otherwise the new location.
+    """
+    home = home or get_atlas_home()
+    old_path = home / old_name
+    if _legacy_path_has_content(old_path):
+        return old_path
+    return home / new_subpath
+
+
+def get_whatsapp_session_dir(home: Path | None = None) -> Path:
+    """The one directory a WhatsApp pairing lives in.
+
+    There is exactly one Baileys session on a machine, and four places used to
+    ask for it: the bridge adapter, the LID resolver, the desktop pairing
+    endpoint, and ``atlas whatsapp``. Three called ``get_atlas_dir`` and the
+    fourth hardcoded the legacy path, which is not a difference of opinion but
+    a fork: the CLI paired into ``<home>/whatsapp/session`` while the desktop
+    app had already paired into ``<home>/platforms/whatsapp/session``, and
+    whichever one the adapter happened to resolve was the only one that worked.
+    Worse, the CLI created its directory before checking it, so pairing from
+    the CLI gave the legacy path content and silently orphaned a pairing the
+    desktop app had already completed.
+
+    Call this instead of resolving the pair by hand. Creating the directory is
+    left to the caller so that a read-only check (is there a pairing?) cannot
+    bring the directory it is asking about into existence.
+    """
+    return get_atlas_dir("platforms/whatsapp/session", "whatsapp/session", home=home)
+
+
+# The port the Node bridge listens on, and the one the adapter talks to.
+#
+# NOT 3000. Upstream Atlas uses 3000, and a customer may reasonably run both
+# this agent and Atlas on one machine — the whole point of separate homes,
+# separate services and separate binaries. Two products defaulting to the same
+# port is not a shared preference, it is a fight: the loser is whichever bridge
+# started first, because starting a bridge frees the port by signalling
+# whatever is listening on it.
+#
+# 3000 is also the single most crowded port on a developer's machine (every
+# Node scaffold in existence), so moving off it costs nothing and avoids a
+# collision that has nothing to do with WhatsApp at all.
+#
+# Overridable per install with `bridge_port` in the platform config; this is
+# only what applies when nobody said otherwise. Keep it in step with the
+# default in scripts/whatsapp-bridge/bridge.js — the two are held together by
+# tests/gateway/test_whatsapp_bridge_port_default.py, the same way the DM
+# policy default is.
+WHATSAPP_BRIDGE_PORT_DEFAULT = 3100
+
+# Written by the bridge when WhatsApp reports DisconnectReason.loggedOut.
+WHATSAPP_LOGGED_OUT_MARKER = "logged-out.json"
+
+
+# ---------------------------------------------------------------------------
+# Default listening ports
+# ---------------------------------------------------------------------------
+#
+# Every default port the product binds, in one place, because they were not:
+# three separate subsystems defaulted to 8645, two to 8646, and two to 8765.
+# A duplicate is invisible at each callsite — each file names one port once and
+# looks obviously fine — and only shows up as "address already in use" on the
+# machine of whoever enabled both, or worse, does not show up at all:
+#
+#   Feishu's webhook and Honcho's OAuth loopback both defaulted to 8765, and
+#   Honcho's is a *redirect URI* (http://127.0.0.1:8765/callback) registered
+#   with the provider. With Feishu holding the socket, the browser delivers an
+#   OAuth authorization code to the Feishu webhook handler. Nothing errors.
+#
+# So this is a registry rather than a comment: the values live here, the
+# callsites import them, and test_default_port_registry.py fails if two of
+# them are ever equal again. Adding a platform means adding a line here, which
+# is the point — the collision becomes a merge conflict instead of a bug.
+#
+# All of these remain overridable per install (config `port`/`webhook_port`,
+# or the platform's env var). This is only what applies when nobody said
+# otherwise.
+#
+# Reassigned 13 Aug 2026 to break the collisions above, keeping whichever
+# claimant is registered with an outside party on the original number:
+#   bluebubbles 8645 -> 8647   (proxy keeps 8645: `atlas proxy` is documented)
+#   wecom       8645 -> 8648
+#   line        8646 -> 8649   (msgraph keeps 8646)
+#   feishu      8765 -> 8650   (honcho keeps 8765: registered redirect URI)
+DEFAULT_API_SERVER_PORT = 8642
+DEFAULT_WEBHOOK_PORT = 8644
+DEFAULT_PROXY_PORT = 8645
+DEFAULT_MSGRAPH_WEBHOOK_PORT = 8646
+DEFAULT_BLUEBUBBLES_WEBHOOK_PORT = 8647
+DEFAULT_WECOM_CALLBACK_PORT = 8648
+DEFAULT_LINE_WEBHOOK_PORT = 8649
+DEFAULT_FEISHU_WEBHOOK_PORT = 8650
+DEFAULT_HONCHO_OAUTH_LOOPBACK_PORT = 8765
+DEFAULT_WHATSAPP_CLOUD_WEBHOOK_PORT = 8090
+DEFAULT_SMS_WEBHOOK_PORT = 8080
+DEFAULT_TEAMS_PORT = 3978
+DEFAULT_PHOTON_SIDECAR_PORT = 8789
+DEFAULT_DASHBOARD_PORT = 9119
+
+#: Every default port above, keyed by the thing that binds it. The test reads
+#: this rather than the module namespace so that adding a constant without
+#: registering it here is itself the failure.
+DEFAULT_PORTS: dict[str, int] = {
+    "api_server": DEFAULT_API_SERVER_PORT,
+    "webhook": DEFAULT_WEBHOOK_PORT,
+    "proxy": DEFAULT_PROXY_PORT,
+    "msgraph_webhook": DEFAULT_MSGRAPH_WEBHOOK_PORT,
+    "bluebubbles_webhook": DEFAULT_BLUEBUBBLES_WEBHOOK_PORT,
+    "wecom_callback": DEFAULT_WECOM_CALLBACK_PORT,
+    "line_webhook": DEFAULT_LINE_WEBHOOK_PORT,
+    "feishu_webhook": DEFAULT_FEISHU_WEBHOOK_PORT,
+    "honcho_oauth_loopback": DEFAULT_HONCHO_OAUTH_LOOPBACK_PORT,
+    "whatsapp_cloud_webhook": DEFAULT_WHATSAPP_CLOUD_WEBHOOK_PORT,
+    "sms_webhook": DEFAULT_SMS_WEBHOOK_PORT,
+    "teams": DEFAULT_TEAMS_PORT,
+    "photon_sidecar": DEFAULT_PHOTON_SIDECAR_PORT,
+    "dashboard": DEFAULT_DASHBOARD_PORT,
+    "whatsapp_bridge": WHATSAPP_BRIDGE_PORT_DEFAULT,
+}
+
+
+def whatsapp_session_is_linked(
+    session_dir: Path | None = None,
+    *,
+    home: Path | None = None,
+) -> bool:
+    """Whether a WhatsApp session can actually connect.
+
+    Not the same question as "is there a creds.json", which is what the app
+    used to answer. A phone that unlinks the device leaves the credentials
+    exactly where they were and invalidates them on the server, so the file
+    test reported "linked" for a session the bridge refused to open — while
+    the gateway retried it forever as if it were a network problem.
+
+    The bridge drops a marker beside the credentials when it is told it has
+    been logged out, so both the CLI and the desktop app can tell a live
+    pairing from a revoked one without asking WhatsApp.
+
+    ``session_dir`` is the directory to judge. Callers that have already
+    resolved one — the profile-scoped endpoints, which may be pointed at a
+    profile's home rather than the default — must pass it, because resolving
+    it again here would answer about a different directory than the one they
+    are talking about, which is the whole class of bug this helper exists to
+    end.
+    """
+    session = session_dir if session_dir is not None else get_whatsapp_session_dir(home=home)
+    if not (session / "creds.json").exists():
+        return False
+    return not (session / WHATSAPP_LOGGED_OUT_MARKER).exists()
+
+
+def clear_whatsapp_session(
+    session_dir: Path | None = None,
+    *,
+    home: Path | None = None,
+) -> bool:
+    """Delete a WhatsApp session directory. True when there was one to delete.
+
+    A revoked session is not worth keeping. WhatsApp unlinks a number's devices
+    when it restricts the account, which invalidates these credentials on the
+    server for good — no reconnect brings them back, and the only way forward
+    is a fresh pairing. Keeping the dead files around buys nothing and costs
+    something: every reader that goes by "is there a creds.json" reports the
+    account as linked when it is not.
+
+    Same rule the CLI has always applied before offering a fresh QR code; it
+    lives here so the gateway applies it identically rather than growing its
+    own copy.
+    """
+    session = session_dir if session_dir is not None else get_whatsapp_session_dir(home=home)
+    if not session.exists():
+        return False
+    shutil.rmtree(session, ignore_errors=True)
+    return True
+
+
+def iter_atlas_node_dirs(home: Path | None = None) -> list[Path]:
+    """Return Atlas-managed Node.js directories in preferred lookup order.
+
+    Windows installs from ``scripts/install.ps1`` unpack portable Node directly
+    into ``%LOCALAPPDATA%\\atlas\\node``. POSIX installs use
+    ``$ATLAS_HOME/node/bin``. Include both shapes on every platform so mixed
+    or migrated installs still work.
+    """
+    root = home or get_atlas_home()
+    dirs = [root / "node"]
+    bin_dir = root / "node" / "bin"
+    # NOTE: keep this ordering in sync with atlasManagedNodePathEntries() in
+    # apps/desktop/electron/main.cjs — the Electron main process is Node and
+    # cannot import this module, so the platform-ordering rule is mirrored there.
+    if sys.platform == "win32":
+        return dirs + [bin_dir]
+    return [bin_dir] + dirs
+
+
+def _candidate_node_command_names(command: str) -> list[str]:
+    base = Path(command).name
+    if sys.platform != "win32" or "." in base:
+        return [base]
+    if base.lower() == "npm":
+        # Prefer npm.cmd. PowerShell may block npm.ps1 by execution policy, and
+        # CreateProcess cannot launch a bare .ps1 the way it can launch .cmd.
+        return ["npm.cmd", "npm.exe", "npm"]
+    if base.lower() == "npx":
+        return ["npx.cmd", "npx.exe", "npx"]
+    if base.lower() == "node":
+        return ["node.exe", "node"]
+    return [f"{base}.cmd", f"{base}.exe", base]
+
+
+_ATLAS_NODE_TARGET_MAJOR = int(os.environ.get("ATLAS_NODE_TARGET_MAJOR", "22"))
+_managed_node_heal_attempted = False
+_NODE_BOOTSTRAP_SCRIPT = Path(__file__).resolve().parent / "scripts" / "lib" / "node-bootstrap.sh"
+
+
+def node_tool_runnable(path: str | None) -> bool:
+    """Return True only when *path* is a Node/npm/npx binary that actually runs.
+
+    Atlas-managed Node trees live under ``$ATLAS_HOME/node`` (or a profile's
+    ``ATLAS_HOME``). A partial upgrade or interrupted install can leave
+    ``bin/npm`` behind while ``lib/cli.js`` is missing — the wrapper exists but
+    immediately throws ``MODULE_NOT_FOUND``. ``find_atlas_node_executable``
+    used to trust file presence alone, so ``atlas update`` would pick that
+    broken npm and fail the Node refresh / web UI build.
+
+    Probe with ``--version`` (same pattern as :func:`agent_browser_runnable`) so
+    broken managed wrappers are detected before use.
+    """
+    if not path:
+        return False
+    candidate = Path(path)
+    if sys.platform == "win32":
+        if not candidate.is_file():
+            return False
+    elif not os.path.exists(path) or not os.access(path, os.X_OK):
+        return False
+
+    import subprocess
+
+    try:
+        from atlas_cli._subprocess_compat import windows_hide_flags
+
+        result = subprocess.run(
+            [path, "--version"],
+            capture_output=True,
+            timeout=10,
+            env=with_atlas_node_path(),
+            creationflags=windows_hide_flags(),
+        )
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        return False
+    return result.returncode == 0
+
+
+def atlas_managed_node_tree_present(home: Path | None = None) -> bool:
+    """Return True when any Atlas-managed node/npm/npx shim exists on disk."""
+    names = set()
+    for command in ("node", "npm", "npx"):
+        names.update(_candidate_node_command_names(command))
+    for directory in iter_atlas_node_dirs(home):
+        for name in names:
+            candidate = directory / name
+            if candidate.is_file() and (
+                sys.platform == "win32" or os.access(candidate, os.X_OK)
+            ):
+                return True
+    return False
+
+
+def _heal_managed_node_windows() -> bool:
+    """Redownload the portable Node zip into ``%ATLAS_HOME%\\node`` on Windows."""
+    import re
+    import tempfile
+    import urllib.request
+    import zipfile
+
+    arch = (os.environ.get("PROCESSOR_ARCHITEW6432") or os.environ.get("PROCESSOR_ARCHITECTURE", "")).lower()
+    if arch in ("amd64", "x86_64"):
+        node_arch = "x64"
+    elif arch == "arm64":
+        node_arch = "arm64"
+    elif arch in ("x86",):
+        node_arch = "x86"
+    else:
+        return False
+
+    home = get_atlas_home()
+    index_url = f"https://nodejs.org/dist/latest-v{_ATLAS_NODE_TARGET_MAJOR}.x/"
+    try:
+        with urllib.request.urlopen(index_url, timeout=60) as response:
+            index_html = response.read().decode("utf-8", errors="replace")
+    except OSError:
+        return False
+
+    match = re.search(
+        rf"node-v{_ATLAS_NODE_TARGET_MAJOR}\.\d+\.\d+-win-{node_arch}\.zip",
+        index_html,
+    )
+    if not match:
+        return False
+
+    zip_name = match.group(0)
+    download_url = f"{index_url}{zip_name}"
+    try:
+        with urllib.request.urlopen(download_url, timeout=300) as response:
+            zip_bytes = response.read()
+    except OSError:
+        return False
+
+    try:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            zip_path = tmp_path / zip_name
+            zip_path.write_bytes(zip_bytes)
+            extract_dir = tmp_path / "extract"
+            extract_dir.mkdir()
+            with zipfile.ZipFile(zip_path) as archive:
+                archive.extractall(extract_dir)
+            extracted = next(extract_dir.glob("node-v*"), None)
+            if extracted is None or not extracted.is_dir():
+                return False
+            target = home / "node"
+            if target.exists():
+                shutil.rmtree(target)
+            shutil.move(str(extracted), str(target))
+    except OSError:
+        return False
+
+    return node_tool_runnable(str(target / "node.exe"))
+
+
+def heal_atlas_managed_node() -> bool:
+    """Redownload Atlas-managed Node when the tree exists but is broken.
+
+    Runs at most once per process. POSIX installs shell out to
+    ``heal_managed_node`` in ``scripts/lib/node-bootstrap.sh``; Windows
+    downloads the portable zip directly (same source as ``install.ps1``).
+    """
+    global _managed_node_heal_attempted
+    if _managed_node_heal_attempted:
+        return False
+    if not atlas_managed_node_tree_present():
+        return False
+    _managed_node_heal_attempted = True
+
+    if sys.platform == "win32":
+        return _heal_managed_node_windows()
+
+    if not _NODE_BOOTSTRAP_SCRIPT.is_file():
+        return False
+
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            [
+                "bash",
+                "-c",
+                f'source "{_NODE_BOOTSTRAP_SCRIPT}" && heal_managed_node',
+            ],
+            env={**os.environ, "ATLAS_HOME": str(get_atlas_home())},
+            capture_output=True,
+            timeout=300,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return result.returncode == 0
+
+
+def find_atlas_node_executable(command: str) -> str | None:
+    """Return a Atlas-managed Node/npm executable path, healing broken trees."""
+    names = _candidate_node_command_names(command)
+    broken_present = False
+    for directory in iter_atlas_node_dirs():
+        for name in names:
+            candidate = directory / name
+            if candidate.is_file() and (
+                sys.platform == "win32" or os.access(candidate, os.X_OK)
+            ):
+                resolved = str(candidate)
+                if node_tool_runnable(resolved):
+                    return resolved
+                broken_present = True
+    if broken_present and heal_atlas_managed_node():
+        for directory in iter_atlas_node_dirs():
+            for name in names:
+                candidate = directory / name
+                if candidate.is_file() and (
+                    sys.platform == "win32" or os.access(candidate, os.X_OK)
+                ):
+                    resolved = str(candidate)
+                    if node_tool_runnable(resolved):
+                        return resolved
+    return None
+
+
+def find_node_executable_on_path(command: str) -> str | None:
+    """Return a Node/npm executable from PATH with Windows shim ordering.
+
+    ``shutil.which("npm")`` can resolve an extensionless npm shim before the
+    ``.cmd`` shim on Windows. Python's CreateProcess cannot execute that shim
+    directly, so prefer the launchable variants explicitly for Atlas-owned
+    subprocesses.
+    """
+    if sys.platform != "win32":
+        return shutil.which(command)
+
+    command_str = str(command)
+    has_path_separator = any(
+        sep and sep in command_str for sep in (os.sep, os.altsep, "/", "\\")
+    )
+    if has_path_separator:
+        return command_str if Path(command_str).is_file() else None
+
+    for name in _candidate_node_command_names(command_str):
+        for directory in os.environ.get("PATH", "").split(os.pathsep):
+            if not directory:
+                continue
+            candidate = Path(directory) / name
+            if candidate.is_file():
+                return str(candidate)
+    return None
+
+
+def find_node_executable(command: str) -> str | None:
+    """Resolve a Node.js command, preferring healthy Atlas-managed installs.
+
+    This is for Atlas-owned subprocesses that should not be broken by a bad,
+    missing, or elevation-triggering system Node/npm on PATH. When a managed
+    tree exists but cannot be healed, returns ``None`` instead of falling back
+    to system npm on PATH.
+    """
+    managed = find_atlas_node_executable(command)
+    if managed:
+        return managed
+    if atlas_managed_node_tree_present():
+        return None
+    return find_node_executable_on_path(command)
+
+
+def with_atlas_node_path(env: dict[str, str] | None = None) -> dict[str, str]:
+    """Return *env* with Atlas-managed Node directories prepended to PATH."""
+    merged = dict(os.environ if env is None else env)
+    existing = merged.get("PATH", "")
+    parts = [p for p in existing.split(os.pathsep) if p]
+    managed = [str(path) for path in iter_atlas_node_dirs() if path.is_dir()]
+    for entry in reversed(managed):
+        if entry not in parts:
+            parts.insert(0, entry)
+    merged["PATH"] = os.pathsep.join(parts)
+    return merged
+
+
+def agent_browser_runnable(path: str | None) -> bool:
+    """Return True only when *path* is an agent-browser CLI that actually runs.
+
+    A bare presence check (``shutil.which`` / ``Path.exists``) is not enough:
+    agent-browser's npm ``postinstall`` re-points a *global* install symlink
+    (e.g. ``/opt/homebrew/bin/agent-browser``) at our local
+    ``node_modules/agent-browser/bin/...`` binary, which then disappears on the
+    next ``atlas update`` — leaving a **dangling symlink** that ``which`` still
+    reports but exec fails on with exit 127 (issue #48521). Callers that trust
+    such a path silently break every browser tool.
+
+    This validates the candidate by resolving it to a real, executable file and
+    running ``--version`` with a short timeout. Returns True only on a clean
+    (exit 0) run, so a dead/wrong-arch/hung binary is rejected and the caller
+    can fall through to the next resolution candidate.
+
+    Special cases:
+      * ``None`` / empty → False.
+      * The ``"npx agent-browser"`` fallback form (contains a space, not a real
+        file) → True; npx resolves and validates the package at run time, so
+        there is nothing to stat here.
+    """
+    if not path:
+        return False
+    # The npx fallback is a two-token command string, not a filesystem path.
+    if " " in path and path.split()[0].endswith("npx"):
+        return True
+    # exists() follows symlinks — a dangling link returns False here, so we
+    # never even spawn a subprocess for the broken-link case.
+    if not os.path.exists(path) or not os.access(path, os.X_OK):
+        return False
+    import subprocess
+
+    try:
+        from atlas_cli._subprocess_compat import windows_hide_flags
+
+        result = subprocess.run(
+            [path, "--version"],
+            capture_output=True,
+            timeout=10,
+            env=with_atlas_node_path(),
+            creationflags=windows_hide_flags(),
+        )
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        return False
+    return result.returncode == 0
+
+
+def _legacy_path_has_content(path: Path) -> bool:
+    """Return ``True`` iff ``path`` exists and has content worth honouring.
+
+    A populated *directory* (any entry inside) counts. A non-directory
+    file at ``path`` also counts — the consumer presumably wrote it.
+    An empty directory does **not** count, so a stale empty
+    legacy stub falls through to the new layout. If the path cannot be
+    inspected (``PermissionError`` on ``stat``/``iterdir``, or any other
+    ``OSError`` short of "not found"), assume occupied so we don't
+    accidentally orphan legacy data. Only a genuine
+    ``FileNotFoundError`` counts as absent.
+
+    Symlinks are resolved before judging content: a symlink pointing at a
+    populated directory (or any existing non-directory target) counts, but
+    a **dangling** symlink (broken target) does **not** — it must not be
+    allowed to shadow populated new-layout data, matching the old
+    ``exists()`` gate's behaviour for broken links.
+    """
+    try:
+        st = path.lstat()
+    except FileNotFoundError:
+        return False
+    except OSError:
+        # PermissionError on a parent, or any other inspection failure:
+        # treat as occupied rather than silently orphaning legacy data.
+        return True
+    if stat.S_ISLNK(st.st_mode):
+        # Resolve the link's target. A dangling symlink has no content and
+        # must not shadow the new layout; a valid one is judged on its target.
+        try:
+            target_st = path.stat()  # follows the link
+        except FileNotFoundError:
+            return False  # dangling symlink → fall through to new layout
+        except OSError:
+            return True  # can't resolve → assume occupied, don't orphan data
+        if not stat.S_ISDIR(target_st.st_mode):
+            return True
+        # target is a directory — fall through to the iterdir() emptiness check
+    elif not stat.S_ISDIR(st.st_mode):
+        return True
+    try:
+        next(path.iterdir())
+    except StopIteration:
+        return False
+    except OSError:
+        return True
+    return True
+
+
+def display_atlas_home() -> str:
+    """Return a user-friendly display string for the current ATLAS_HOME.
+
+    Uses ``~/`` shorthand for readability::
+
+        default:  ``~/.atlas``
+        profile:  ``~/.atlas/profiles/coder``
+        custom:   ``/opt/atlas-custom``
+
+    Use this in **user-facing** print/log messages instead of hardcoding
+    ``~/.atlas``.  For code that needs a real ``Path``, use
+    :func:`get_atlas_home` instead.
+    """
+    home = get_atlas_home()
+    try:
+        return "~/" + str(home.relative_to(Path.home()))
+    except ValueError:
+        return str(home)
+
+
+def secure_parent_dir(path: Path) -> None:
+    """Chmod ``0o700`` on the parent directory of *path*, but only if safe.
+
+    Refuses to chmod ``/`` or any top-level directory (resolved parent with
+    fewer than 3 parts, i.e. ``/`` or any direct child like ``/usr``) to
+    prevent catastrophic host bricking when ``ATLAS_HOME`` or other path
+    env vars resolve to an unexpected location.
+
+    See https://github.com/NousResearch/hermes-agent/issues/25821.
+    """
+    parent = path.parent.resolve()
+    # Refuse root and its direct children (/usr, /home, /var, /tmp, …).
+    if parent == Path("/") or len(parent.parts) < 3:
+        return
+    try:
+        os.chmod(parent, 0o700)
+    except OSError:
+        pass
+
+
+def _norm_home_path(path: str | None) -> str:
+    """Return a comparable absolute path string, or ``""`` for empty input."""
+    raw = (path or "").strip()
+    if not raw:
+        return ""
+    try:
+        return os.path.normcase(os.path.abspath(os.path.expanduser(raw)))
+    except Exception:
+        return os.path.normcase(raw)
+
+
+def _profile_home_path(env: dict[str, str] | None = None) -> str | None:
+    """Return ``{ATLAS_HOME}/home`` when the profile-home directory exists."""
+    atlas_home = get_atlas_home_override() or (env or {}).get("ATLAS_HOME") or os.getenv("ATLAS_HOME")
+    if not atlas_home:
+        return None
+    profile_home = os.path.join(atlas_home, "home")
+    if os.path.isdir(profile_home):
+        return profile_home
+    return None
+
+
+def _is_profile_home(candidate: str | None, profile_home: str | None) -> bool:
+    return bool(candidate and profile_home and _norm_home_path(candidate) == _norm_home_path(profile_home))
+
+
+def _iter_real_home_candidates(env: dict[str, str] | None = None) -> list[str]:
+    """Return likely OS-user home candidates in trust order."""
+    env = env or {}
+    candidates: list[str] = []
+    explicit = str(env.get("ATLAS_REAL_HOME") or os.getenv("ATLAS_REAL_HOME", "")).strip()
+    if explicit:
+        candidates.append(explicit)
+    home = str(env.get("HOME") or os.getenv("HOME", "")).strip()
+    if home:
+        candidates.append(home)
+    try:
+        import pwd
+
+        pw_home = pwd.getpwuid(os.getuid()).pw_dir.strip()  # windows-footgun: ok — POSIX-only module inside try/except
+        if pw_home:
+            candidates.append(pw_home)
+    except Exception:
+        pass
+    userprofile = str(env.get("USERPROFILE") or os.getenv("USERPROFILE", "")).strip()
+    if userprofile:
+        candidates.append(userprofile)
+    drive = str(env.get("HOMEDRIVE") or os.getenv("HOMEDRIVE", "")).strip()
+    path = str(env.get("HOMEPATH") or os.getenv("HOMEPATH", "")).strip()
+    if drive and path:
+        candidates.append(f"{drive}{path}" if path.startswith(("\\", "/")) else os.path.join(drive, path))
+    expanded = os.path.expanduser("~")
+    if expanded and expanded != "~":
+        candidates.append(expanded)
+    return candidates
+
+
+def get_real_home(env: dict[str, str] | None = None) -> str:
+    """Return the OS user's real home directory, avoiding Atlas profile HOME.
+
+    ``ATLAS_HOME`` scopes Atlas state. ``HOME`` is reserved for the OS/user
+    account and the many external CLIs that store credentials under ``~``.
+    If a parent process is already running with ``HOME={ATLAS_HOME}/home``,
+    this helper repairs back to the account home when possible.
+    """
+    profile_home = _profile_home_path(env)
+    seen: set[str] = set()
+    for candidate in _iter_real_home_candidates(env):
+        key = _norm_home_path(candidate)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        if not _is_profile_home(candidate, profile_home):
+            return candidate
+    return "/tmp"
+
+
+def get_subprocess_home(env: dict[str, str] | None = None) -> str | None:
+    """Return a subprocess ``HOME`` override, if one should be applied.
+
+    Policy is controlled by ``terminal.home_mode`` (bridged to
+    ``TERMINAL_HOME_MODE``):
+
+    * ``auto`` (default): host installs keep the real user HOME; containers use
+      ``{ATLAS_HOME}/home`` for persistent state. If a host parent already has
+      HOME pointed at the profile home, repair subprocesses back to real HOME.
+    * ``real``: always prefer the real OS-user HOME.
+    * ``profile``: use ``{ATLAS_HOME}/home`` when it exists, preserving the
+      older strict per-profile tool-config isolation.
+    """
+    env = env or {}
+    profile_home = _profile_home_path(env)
+    mode = str(env.get("TERMINAL_HOME_MODE") or os.getenv("TERMINAL_HOME_MODE", "auto")).strip().lower() or "auto"
+    if mode in {"isolated", "profile_home", "profile-home"}:
+        mode = "profile"
+    if mode in {"host", "user", "real_home", "real-home"}:
+        mode = "real"
+
+    if mode == "profile":
+        return profile_home
+
+    real_home = get_real_home(env)
+    current_home = str(env.get("HOME") or os.getenv("HOME", "")).strip()
+    if mode == "real":
+        return real_home if _norm_home_path(real_home) != _norm_home_path(current_home) else None
+
+    if profile_home and is_container():
+        return profile_home
+    if _is_profile_home(current_home, profile_home):
+        return real_home if _norm_home_path(real_home) != _norm_home_path(current_home) else None
+    return None
+
+
+def apply_subprocess_home_env(env: dict[str, str]) -> None:
+    """Apply Atlas' subprocess HOME contract to *env* in-place."""
+    real_home = get_real_home(env)
+    if real_home:
+        env["ATLAS_REAL_HOME"] = real_home
+    home = get_subprocess_home(env)
+    if home:
+        env["HOME"] = home
+
+
+VALID_REASONING_EFFORTS = (
+    "minimal", "low", "medium", "high", "xhigh", "max", "ultra",
+)
+
+
+def parse_reasoning_effort(effort) -> dict | None:
+    """Parse a reasoning effort level into a config dict.
+
+    Valid levels: "none", "minimal", "low", "medium", "high", "xhigh", "max",
+    "ultra".
+    Returns None when the input is empty or unrecognized (caller uses default).
+    Returns {"enabled": False} for "none" (aliases: "false", "disabled", and
+    YAML boolean False — users write ``reasoning_effort: false``/``off``/``no``
+    in config.yaml and YAML hands us a bool, which must mean disabled, not
+    "fall back to the default and keep thinking").
+    Returns {"enabled": True, "effort": <level>} for valid effort levels.
+    """
+    if effort is False:
+        return {"enabled": False}
+    if effort is None or effort is True:
+        return None
+    effort = str(effort)
+    if not effort.strip():
+        return None
+    effort = effort.strip().lower()
+    if effort in {"none", "false", "disabled"}:
+        return {"enabled": False}
+    if effort in VALID_REASONING_EFFORTS:
+        return {"enabled": True, "effort": effort}
+    return None
+
+
+def _canonical_model_variants(model: str) -> list[str]:
+    """Generate bounded spelling variants for tolerant override matching.
+
+    Model names mix two types of separators:
+    - **Word separators**: dashes between words (``claude-opus``)
+    - **Version separators**: dots or dashes between version digits (``4.5``, ``4-5``)
+
+    The tricky case is that ``.`` appears in BOTH roles (word sep in some
+    spellings, version sep in others), so a blanket ``.replace('.', '-')``
+    is lossy — it collapses version dots into dashes and no later step
+    recovers the canonical form (``claude-opus-4.5``).
+
+    Strategy: generate a small set of base forms, then apply version-dot
+    recovery to EACH of them. This ensures symmetry:
+    ``claude-opus-4.5``, ``claude-opus-4-5``, and ``claude-opus.4.5`` all
+    produce the same variant set.
+
+    Steps:
+    1. Exact input
+    2. Dots/dashes cross-substitution on the entire string
+    3. Version-dot recovery applied to ALL derivatives
+    4. Strip provider/aggregator prefix → bare model variants
+    5. Apply version-dot recovery to bare derivatives
+    6. Prepend known provider/aggregator prefixes
+
+    Duplicates removed in insertion order (exact always wins).
+    """
+    import re
+
+    # Version-dot regexes — digit-separator-digit interconversion
+    _dash_to_dot = lambda s: re.sub(r'(\d)-(\d)', r'\1.\2', s)
+    _dot_to_dash = lambda s: re.sub(r'(\d)\.(\d)', r'\1-\2', s)
+
+    seen = set()
+    variants = []
+
+    def _add(v):
+        if v and v not in seen:
+            seen.add(v)
+            variants.append(v)
+
+    def _add_with_derivatives(s):
+        """Add s plus its dots↔dashes and version-dot derivatives."""
+        _add(s)
+        all_dashed = s.replace('.', '-')
+        _add(all_dashed)
+        all_dotted = s.replace('-', '.')
+        _add(all_dotted)
+        # Version-dot recovery on each base form
+        _add(_dash_to_dot(s))
+        _add(_dot_to_dash(s))
+        _add(_dash_to_dot(all_dashed))
+        _add(_dot_to_dash(all_dotted))
+
+    # 1-3. Base variants for the full string
+    _add_with_derivatives(model)
+
+    # Split by / to handle provider prefix
+    parts = model.split('/')
+
+    # 4. Bare model variants (strip provider/aggregator prefix)
+    if len(parts) >= 2:
+        bare = parts[-1]
+        _add_with_derivatives(bare)
+
+    # Strip aggregator only (3+ parts)
+    # e.g. "openrouter/anthropic/claude-opus-4.5" → "anthropic/claude-opus-4.5"
+    if len(parts) >= 3:
+        _add_with_derivatives('/'.join(parts[1:]))
+
+    # 5. Prepend known provider prefixes to bare variants
+    known_providers = (
+        'anthropic', 'openai', 'google', 'openrouter', 'groq', 'mistral',
+        'xai', 'cohere', 'perplexity', 'together', 'fireworks', 'deepseek',
+    )
+    bare_variants = [v for v in variants if '/' not in v]
+    for v in bare_variants:
+        for provider in known_providers:
+            _add(f"{provider}/{v}")
+
+    # Prepend aggregator to single-slash variants
+    single_slash_variants = [v for v in variants if v.count('/') == 1]
+    known_aggregators = ('openrouter', 'opencode', 'fireworks', 'groq', 'together')
+    for v in single_slash_variants:
+        for agg in known_aggregators:
+            _add(f"{agg}/{v}")
+
+    return variants
+
+
+def resolve_per_model_reasoning_effort(model: str, overrides: dict | None) -> dict | None:
+    """Lookup a per-model reasoning_effort override with spelling-tolerance.
+
+    Args:
+        model: The model string (any spelling — exact, normalized, bare,
+               with provider prefix, etc.)
+        overrides: The dict of per-model overrides from
+                   agent.reasoning_overrides in config.yaml. Keys can be
+                   any sensible spelling of the model name.
+
+    Returns:
+        The parsed reasoning_config dict if a match is found,
+        None otherwise (caller should fall back to global reasoning_effort).
+
+    Resolution order:
+    1. Exact match
+    2. Dots ↔ dashes variants
+    3. Strip provider prefix (bare model name only)
+    4. Strip aggregator prefix (middle segment only)
+    5. Prepend known aggregator prefixes to bare/single-slash variants
+
+    First non-None parse_reasoning_effort result wins.
+    """
+    if not overrides or not isinstance(overrides, dict) or not model:
+        return None
+
+    for variant in _canonical_model_variants(model):
+        if variant in overrides:
+            result = parse_reasoning_effort(overrides[variant])
+            if result is not None:
+                return result
+
+    return None
+
+
+def resolve_reasoning_config(cfg: dict | None, model: str = "") -> dict | None:
+    """Resolve the effective reasoning config for *model* from a config dict.
+
+    Single chokepoint for reasoning-effort resolution, shared by every
+    surface (CLI startup, messaging gateway, Desktop/TUI, cron, ``/model``
+    switch, fallback activation). Priority:
+
+    1. Per-model override from ``agent.reasoning_overrides``
+       (spelling-tolerant — see :func:`resolve_per_model_reasoning_effort`)
+    2. Global ``agent.reasoning_effort`` — the raw value is passed through
+       so a YAML boolean ``False`` (``reasoning_effort: false``/``off``/
+       ``no``) means "thinking disabled", never silently re-enabled.
+
+    Session-scoped overrides (gateway ``/reasoning --session``) are resolved
+    by the caller BEFORE this function — they always win.
+
+    Args:
+        cfg: A loaded config dict (any of the three loaders' shapes — only
+             the ``agent`` and ``model`` sections are read).
+        model: The effective model for this surface/session. When empty,
+               it is derived from the config's ``model`` section (string
+               form, or a dict's ``default``/``model`` keys).
+
+    Returns:
+        The parsed reasoning config dict, or None when unset/unrecognized
+        (caller uses the provider default).
+    """
+    cfg = cfg if isinstance(cfg, dict) else {}
+    agent_cfg = cfg.get("agent")
+    if not isinstance(agent_cfg, dict):
+        agent_cfg = {}
+
+    if not model:
+        model_cfg = cfg.get("model")
+        if isinstance(model_cfg, str):
+            model = model_cfg.strip()
+        elif isinstance(model_cfg, dict):
+            model = str(
+                model_cfg.get("default") or model_cfg.get("model") or ""
+            ).strip()
+        else:
+            model = ""
+
+    overrides = agent_cfg.get("reasoning_overrides") or {}
+    per_model = resolve_per_model_reasoning_effort(model, overrides)
+    if per_model is not None:
+        return per_model
+
+    # Global fallback — keep the raw value; coercing with ``or ""`` turns a
+    # YAML boolean False into "", silently re-enabling thinking for users
+    # who explicitly disabled it.
+    effort = agent_cfg.get("reasoning_effort", "")
+    result = parse_reasoning_effort(effort)
+    if effort and str(effort).strip() and result is None:
+        import logging
+        logging.getLogger(__name__).warning(
+            "Unknown reasoning_effort '%s', using default (medium)", effort
+        )
+    return result
+
+
+def is_termux() -> bool:
+    """Return True when running inside a Termux (Android) environment.
+
+    Checks ``TERMUX_VERSION`` (set by Termux) or the Termux-specific
+    ``PREFIX`` path.  Import-safe — no heavy deps.
+    """
+    prefix = os.getenv("PREFIX", "")
+    return bool(os.getenv("TERMUX_VERSION") or "com.termux/files/usr" in prefix)
+
+
+_wsl_detected: bool | None = None
+
+
+def is_wsl() -> bool:
+    """Return True when running inside WSL (Windows Subsystem for Linux).
+
+    Checks ``/proc/version`` for the ``microsoft`` marker that both WSL1
+    and WSL2 inject.  Result is cached for the process lifetime.
+    Import-safe — no heavy deps.
+    """
+    global _wsl_detected
+    if _wsl_detected is not None:
+        return _wsl_detected
+    try:
+        with open("/proc/version", "r", encoding="utf-8") as f:
+            _wsl_detected = "microsoft" in f.read().lower()
+    except Exception:
+        _wsl_detected = False
+    return _wsl_detected
+
+
+def windows_path_to_wsl(path: str) -> str | None:
+    """Convert a Windows drive path (``C:\\...``) to its ``/mnt/<drive>/...`` form."""
+    import re
+
+    match = re.match(r"^([A-Za-z]):[\\/](.*)$", str(path or "").strip())
+    if not match:
+        return None
+    drive = match.group(1).lower()
+    tail = match.group(2).replace("\\", "/")
+    return f"/mnt/{drive}/{tail}"
+
+
+def wsl_unc_path_to_posix(path: str) -> str | None:
+    """Convert a Windows WSL UNC path (``\\\\wsl.localhost\\<distro>\\...`` or the
+    legacy ``\\\\wsl$\\...``) to a POSIX path inside the distro."""
+    import re
+
+    normalized = str(path or "").strip().replace("/", "\\")
+    match = re.match(r"^\\\\wsl(?:\.localhost|\$)\\[^\\]+\\(.*)$", normalized, re.IGNORECASE)
+    if not match:
+        return None
+    tail = match.group(1).replace("\\", "/")
+    return f"/{tail}" if tail else "/"
+
+
+def translate_cwd_for_wsl_backend(cwd: str) -> str:
+    """Normalize a cross-boundary cwd when Atlas itself runs inside WSL.
+
+    A Windows-host UI (native picker / drive path / ``\\\\wsl.localhost\\`` UNC)
+    can hand the WSL backend a path it can't ``chdir`` into. Map it to the POSIX
+    equivalent so the picker, sidebar, and sessions all agree on the workspace.
+    No-op off WSL and for paths that are already POSIX.
+    """
+    if not is_wsl():
+        return cwd
+    for translator in (wsl_unc_path_to_posix, windows_path_to_wsl):
+        translated = translator(cwd)
+        if translated is not None:
+            return translated
+    return cwd
+
+
+_container_detected: bool | None = None
+
+
+def is_container() -> bool:
+    """Return True when running inside a container.
+
+    Recognizes Docker (``/.dockerenv``), Podman (``/run/.containerenv``),
+    and — via ``/proc/1/cgroup`` — the docker/podman/lxc cgroup-v1 markers.
+
+    cgroup v2 collapses ``/proc/1/cgroup`` to a single ``0::/`` line with no
+    runtime marker, so containerd/CRI-O runtimes (the common case on
+    Kubernetes/k3s) were previously missed. To cover those, also check:
+      * ``KUBERNETES_SERVICE_HOST`` env var — set in every Kubernetes pod.
+      * ``kubepods`` / ``containerd`` / ``crio`` markers in ``/proc/1/cgroup``.
+      * the same markers in ``/proc/self/mountinfo`` (cgroup-v2 fallback).
+
+    Result is cached for the process lifetime.  Import-safe — no heavy deps.
+
+    See: NousResearch/hermes-agent#47111
+    """
+    global _container_detected
+    if _container_detected is not None:
+        return _container_detected
+    if os.path.exists("/.dockerenv"):
+        _container_detected = True
+        return True
+    if os.path.exists("/run/.containerenv"):
+        _container_detected = True
+        return True
+    # Kubernetes always injects this into pod containers; absent on hosts.
+    if os.environ.get("KUBERNETES_SERVICE_HOST"):
+        _container_detected = True
+        return True
+    _CGROUP_MARKERS = ("docker", "podman", "/lxc/", "kubepods", "containerd", "crio")
+    try:
+        with open("/proc/1/cgroup", "r", encoding="utf-8") as f:
+            cgroup = f.read()
+            if any(marker in cgroup for marker in _CGROUP_MARKERS):
+                _container_detected = True
+                return True
+    except OSError:
+        pass
+    # cgroup v2: /proc/1/cgroup is just "0::/" with no marker. The container
+    # runtime still shows up in the mount table (overlay rootfs, runtime mount
+    # paths), so scan mountinfo as a last resort.
+    try:
+        with open("/proc/self/mountinfo", "r", encoding="utf-8") as f:
+            mountinfo = f.read()
+            if any(marker in mountinfo for marker in ("kubepods", "containerd", "crio")):
+                _container_detected = True
+                return True
+    except OSError:
+        pass
+    _container_detected = False
+    return False
+
+
+# ─── Well-Known Paths ─────────────────────────────────────────────────────────
+
+
+def get_config_path() -> Path:
+    """Return the path to ``config.yaml`` under ATLAS_HOME.
+
+    Replaces the ``get_atlas_home() / "config.yaml"`` pattern repeated
+    in 7+ files (skill_utils.py, atlas_logging.py, atlas_time.py, etc.).
+    """
+    return get_atlas_home() / "config.yaml"
+
+
+def get_skills_dir() -> Path:
+    """Return the path to the skills directory under ATLAS_HOME."""
+    return get_atlas_home() / "skills"
+
+
+
+def get_env_path() -> Path:
+    """Return the path to the ``.env`` file under ATLAS_HOME."""
+    return get_atlas_home() / ".env"
+
+
+# ─── Network Preferences ─────────────────────────────────────────────────────
+
+
+def apply_ipv4_preference(force: bool = False) -> None:
+    """Monkey-patch ``socket.getaddrinfo`` to prefer IPv4 connections.
+
+    On servers with broken or unreachable IPv6, Python tries AAAA records
+    first and hangs for the full TCP timeout before falling back to IPv4.
+    This affects httpx, requests, urllib, the OpenAI SDK — everything that
+    uses ``socket.getaddrinfo``.
+
+    When *force* is True, patches ``getaddrinfo`` so that calls with
+    ``family=AF_UNSPEC`` (the default) resolve as ``AF_INET`` instead,
+    skipping IPv6 entirely.  If no A record exists, falls back to the
+    original unfiltered resolution so pure-IPv6 hosts still work.
+
+    Safe to call multiple times — only patches once.
+    Set ``network.force_ipv4: true`` in ``config.yaml`` to enable.
+    """
+    if not force:
+        return
+
+    import socket
+
+    # Guard against double-patching
+    if getattr(socket.getaddrinfo, "_atlas_ipv4_patched", False):
+        return
+
+    _original_getaddrinfo = socket.getaddrinfo
+
+    def _ipv4_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+        if family == 0:  # AF_UNSPEC — caller didn't request a specific family
+            try:
+                return _original_getaddrinfo(
+                    host, port, socket.AF_INET, type, proto, flags
+                )
+            except socket.gaierror:
+                # No A record — fall back to full resolution (pure-IPv6 hosts)
+                return _original_getaddrinfo(host, port, family, type, proto, flags)
+        return _original_getaddrinfo(host, port, family, type, proto, flags)
+
+    _ipv4_getaddrinfo._atlas_ipv4_patched = True  # type: ignore[attr-defined]
+    socket.getaddrinfo = _ipv4_getaddrinfo  # type: ignore[assignment]
+
+
+# ─── Streaming Response Constants ────────────────────────────────────────────
+
+# Response ID for partial stream stubs used during error recovery
+PARTIAL_STREAM_STUB_ID = "partial-stream-stub"
+
+FINISH_REASON_LENGTH = "length"
+
+
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+OPENROUTER_MODELS_URL = f"{OPENROUTER_BASE_URL}/models"
+
+AI_GATEWAY_BASE_URL = "https://ai-gateway.vercel.sh/v1"
+
+
+# ─── Venv layout ─────────────────────────────────────────────────────────────
+
+# The directory names a virtual environment is found under, inside a source
+# tree, in the order they should be preferred. Open-coded as the same literal
+# pair in `atlas_cli.gateway`, `atlas_cli.main` and `atlas_cli.doctor`;
+# named here for the same reason `venv_bin_dir` exists below, so a caller that
+# has to answer "is there a venv in this tree" stops re-deriving the answer.
+VENV_DIR_NAMES: tuple[str, ...] = (".venv", "venv")
+
+
+def find_tree_venv(tree, *, names: tuple[str, ...] = VENV_DIR_NAMES) -> Path | None:
+    """The virtual environment inside *tree*, or None when it has none.
+
+    A source tree is not required to carry one — a system-wide install and the
+    Windows layout both legitimately keep the interpreter elsewhere — so the
+    absence is an answer, not a failure.
+    """
+    for name in names:
+        candidate = Path(tree) / name
+        if candidate.is_dir():
+            return candidate
+    return None
+
+
+def venv_bin_dir(venv_dir, *, windows: bool | None = None) -> Path:
+    """Directory holding a venv's executables (``Scripts`` / ``bin``).
+
+    Canonical helper for venv layout. This was open-coded in seven places
+    across four ``atlas_cli`` modules using three different Windows
+    predicates (``platform.system()``, ``is_windows()``, ``_is_windows()``);
+    each new call site had to re-derive it, and #76091 shipped an eighth copy
+    because the correct behaviour lived 2400 lines away in another function.
+    A few sites outside ``atlas_cli`` (``tools/code_execution_tool.py``,
+    ``agent/lsp/install.py``, ``agent/lsp/servers.py``) still hand-roll it —
+    convert them as they are touched.
+
+    *windows* lets a caller pass its own platform verdict. Several callers
+    resolve this through predicates the test-suite patches to exercise
+    Windows paths on Linux CI (``atlas_cli.main._is_windows`` and friends);
+    reading ``sys.platform`` unconditionally here would silently drop those
+    paths out of coverage. Defaults to the host platform.
+
+    The path is returned unconditionally — callers legitimately differ on
+    whether a missing venv is an error, so existence checking stays with them.
+    """
+    if windows is None:
+        windows = sys.platform == "win32"
+    return Path(venv_dir) / ("Scripts" if windows else "bin")
+
+
+def venv_python_path(venv_dir, *, windows: bool | None = None) -> Path:
+    """Path to the Python interpreter inside *venv_dir* (may not exist)."""
+    if windows is None:
+        windows = sys.platform == "win32"
+    return venv_bin_dir(venv_dir, windows=windows) / (
+        "python.exe" if windows else "python"
+    )
+
+
+# ─── Partial-update diagnostics ──────────────────────────────────────────────
+
+# Top-level packages/modules that ship as part of Atlas itself. An ImportError
+# naming one of these means our own tree is inconsistent; anything else is a
+# third-party problem with different remediation. Single source of truth —
+# `atlas_cli.update_cmd`'s post-update probe consumes this same set so the
+# guard that BLOCKS and the hint that EXPLAINS can never disagree.
+FIRST_PARTY_MODULE_ROOTS = frozenset(
+    {
+        "agent",
+        "acp_adapter",
+        "cli",
+        "cron",
+        "gateway",
+        "model_tools",
+        "plugins",
+        "providers",
+        "tools",
+        "toolsets",
+        "run_agent",
+        "tui_gateway",
+        "utils",
+    }
+)
+
+
+def is_first_party_module(name: str | None) -> bool:
+    """True when *name* is a module that ships with Atlas.
+
+    Matches on the first dotted segment against an exact set — a substring or
+    ``startswith`` test would also claim third-party ``agents``, ``agentops``,
+    and ``toolsets_x``.
+    """
+    root = str(name).split(".")[0] if name else ""
+    if not root:
+        return False
+    return root in FIRST_PARTY_MODULE_ROOTS or root.startswith("atlas_")
+
+
+def partial_update_hint(exc: BaseException) -> list[str]:
+    """Return recovery guidance lines when *exc* looks like a half-updated tree.
+
+    An interrupted or partially-applied update can leave the checkout with new
+    files in one package and stale files in another. Every file still parses,
+    so nothing is corrupt in the usual sense — but a module that imports a name
+    added in the same release from a sibling that wasn't refreshed dies with
+    ``ImportError: cannot import name 'X' from 'y'`` on every startup.
+
+    Users hit this as an opaque crash with no indication that the *install*,
+    rather than their config, is the problem — and `atlas update` is exactly
+    the command they need but are least likely to trust after a failed update.
+    Return the guidance so callers can print it alongside the raw error.
+
+    Returns an empty list for unrelated exceptions, so callers can splat it
+    unconditionally.
+    """
+    if not isinstance(exc, ImportError):
+        return []
+    # A missing third-party dependency is a different problem (bad venv, missing
+    # extra) with different remediation, so don't claim a partial update.
+    if isinstance(exc, ModuleNotFoundError):
+        return []
+    name = getattr(exc, "name", None)
+    if not is_first_party_module(name):
+        return []
+    return [
+        "",
+        "This looks like a partially-updated install: one module was refreshed "
+        "and a related one was not.",
+        "Re-run the update to bring the whole tree to the same version:",
+        "    atlas update",
+        "If that also fails, reinstall: https://hermes-agent.nousresearch.com",
+    ]

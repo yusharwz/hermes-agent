@@ -134,7 +134,7 @@ export interface BoardMeta {
   project_name?: null | string
 }
 
-/** GET /projects — first-class Hermes projects available to scope a board. */
+/** GET /projects — first-class Atlas projects available to scope a board. */
 export interface KanbanProject {
   id: string
   slug: string

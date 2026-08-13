@@ -70,7 +70,7 @@ export function WhatsAppPairing() {
 
   const readLink = useCallback(async () => {
     try {
-      const next = await window.hermesDesktop.api<LinkState>({ path: '/api/messaging/whatsapp/link' })
+      const next = await window.atlasDesktop.api<LinkState>({ path: '/api/messaging/whatsapp/link' })
 
       if (!cancelled.current) {setLink(next)}
     } catch {
@@ -117,7 +117,7 @@ export function WhatsAppPairing() {
     if (!id || session?.status === 'connected' || session?.status === 'failed') {return}
 
     const timer = setInterval(() => {
-      void window.hermesDesktop
+      void window.atlasDesktop
         .api<PairingStatus>({ path: `/api/messaging/whatsapp/onboarding/${id}` })
         .then(next => {
           if (cancelled.current) {return}
@@ -144,7 +144,7 @@ export function WhatsAppPairing() {
     setExpired(false)
 
     try {
-      const started = await window.hermesDesktop.api<PairingStatus>({
+      const started = await window.atlasDesktop.api<PairingStatus>({
         body: {
           // A comma-separated string, not an array: the backend normalises it
           // with str(value or ""), so a list arrives as its Python repr.
@@ -169,7 +169,7 @@ export function WhatsAppPairing() {
     setBusy(true)
 
     try {
-      await window.hermesDesktop.api({
+      await window.atlasDesktop.api({
         body: { allowed_users: session.allowed_users ?? allowed },
         method: 'POST',
         path: `/api/messaging/whatsapp/onboarding/${session.pairing_id}/apply`
@@ -191,7 +191,7 @@ export function WhatsAppPairing() {
     if (!id) {return}
 
     try {
-      await window.hermesDesktop.api({ method: 'DELETE', path: `/api/messaging/whatsapp/onboarding/${id}` })
+      await window.atlasDesktop.api({ method: 'DELETE', path: `/api/messaging/whatsapp/onboarding/${id}` })
     } catch {
       // It times out on its own; a failed cancel is not worth an error.
     }
@@ -202,7 +202,7 @@ export function WhatsAppPairing() {
     setFailure(null)
 
     try {
-      await window.hermesDesktop.api({ method: 'DELETE', path: '/api/messaging/whatsapp/link' })
+      await window.atlasDesktop.api({ method: 'DELETE', path: '/api/messaging/whatsapp/link' })
       setSession(null)
       setQrSvg(null)
       await readLink()

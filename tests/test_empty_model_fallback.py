@@ -4,10 +4,10 @@ from unittest.mock import patch
 
 
 class TestGetDefaultModelForProvider:
-    """Unit tests for hermes_cli.models.get_default_model_for_provider."""
+    """Unit tests for atlas_cli.models.get_default_model_for_provider."""
 
     def test_known_provider_returns_first_model(self):
-        from hermes_cli.models import get_default_model_for_provider
+        from atlas_cli.models import get_default_model_for_provider
         result = get_default_model_for_provider("openai-codex")
         # Should return first model from _PROVIDER_MODELS["openai-codex"]
         assert result
@@ -23,10 +23,10 @@ class TestGetDefaultModelForProvider:
         without shipping a release."""
         from unittest.mock import patch
 
-        from hermes_cli import models as models_mod
+        from atlas_cli import models as models_mod
 
         with patch(
-            "hermes_cli.model_catalog.get_default_model_from_cache",
+            "atlas_cli.model_catalog.get_default_model_from_cache",
             return_value="qwen/qwen3.7-max",
         ):
             assert (
@@ -60,7 +60,7 @@ class TestResolveDefaultModelRespectsTheLeash:
     ]
 
     def test_locked_resolves_the_plan_combo_not_a_vendor_model(self):
-        from hermes_cli.models import resolve_default_model
+        from atlas_cli.models import resolve_default_model
 
         with patch("agent.ninegate_leash.is_locked", return_value=True), \
              patch("agent.ninegate_leash.catalog", return_value=list(self.PLAN)):
@@ -69,14 +69,14 @@ class TestResolveDefaultModelRespectsTheLeash:
     def test_locked_with_unreadable_plan_stays_empty(self):
         """Empty keeps the downstream recovery nets armed; a vendor id defeats
         them by looking like a successful resolution."""
-        from hermes_cli.models import resolve_default_model
+        from atlas_cli.models import resolve_default_model
 
         with patch("agent.ninegate_leash.is_locked", return_value=True), \
              patch("agent.ninegate_leash.catalog", return_value=[]):
             assert resolve_default_model("openrouter") == ""
 
     def test_unlocked_still_uses_the_provider_catalog(self):
-        from hermes_cli.models import get_default_model_for_provider, resolve_default_model
+        from atlas_cli.models import get_default_model_for_provider, resolve_default_model
 
         with patch("agent.ninegate_leash.is_locked", return_value=False):
             assert resolve_default_model("openai-codex") == get_default_model_for_provider(

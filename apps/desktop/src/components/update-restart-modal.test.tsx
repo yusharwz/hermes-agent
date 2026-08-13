@@ -18,7 +18,7 @@ const restartApp = vi.fn().mockResolvedValue({ ok: true })
 beforeEach(() => {
   $restartPrompt.set(null)
   restartApp.mockClear()
-  Object.defineProperty(window, 'hermesDesktop', { configurable: true, value: { restartApp } })
+  Object.defineProperty(window, 'atlasDesktop', { configurable: true, value: { restartApp } })
 })
 
 afterEach(cleanup)

@@ -59,7 +59,7 @@ export function NineGateLoginOverlay({ enabled }: { enabled: boolean }) {
     setBusy(true)
 
     try {
-      await window.hermesDesktop.api({
+      await window.atlasDesktop.api({
         body: { api_key: key },
         method: 'POST',
         path: '/api/ninegate/login'

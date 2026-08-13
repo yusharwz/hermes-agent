@@ -62,18 +62,18 @@ LEASH_CALLERS = {
     "agent/ninegate_leash.py",
     "agent/turn_context.py",
     "agent/video_gen_provider.py",
-    "hermes_cli/config.py",
-    "hermes_cli/inventory.py",
-    "hermes_cli/models.py",
-    "hermes_cli/moa_config.py",
+    "atlas_cli/config.py",
+    "atlas_cli/inventory.py",
+    "atlas_cli/models.py",
+    "atlas_cli/moa_config.py",
     # Enforcement, and of a kind the rest of this list does not cover: the
     # others keep a running agent inside the leash, this one keeps the leash
     # from being replaced. A locked build has no .git, which the update path
     # read as a broken checkout and offered to fix by fetching upstream —
-    # reinstalling Hermes over Atlas, guards and all. Losing this guard does
+    # reinstalling Atlas over Atlas, guards and all. Losing this guard does
     # not leak a request; it ends the lock.
-    "hermes_cli/update_cmd.py",
-    "hermes_cli/web_server.py",
+    "atlas_cli/update_cmd.py",
+    "atlas_cli/web_server.py",
     "plugins/image_gen/openai/__init__.py",
     "tools/transcription_tools.py",
     "tools/tts_streaming.py",
@@ -129,12 +129,12 @@ def test_new_enforcement_points_are_noticed():
 # session's "last known good" model, which later recovery turns restore. That is
 # the bug resolve_default_model() exists to close.
 #
-# One direct call remains, and it is reviewed: hermes_cli/models.py resolves
+# One direct call remains, and it is reviewed: atlas_cli/models.py resolves
 # `/model <provider>` typed as a bare name, and every /model switch funnels
 # through agent_runtime_helpers.switch_model(), which clamps under is_locked()
 # before anything reaches a client.
 DIRECT_DEFAULT_MODEL_CALLERS = {
-    "hermes_cli/models.py",
+    "atlas_cli/models.py",
 }
 
 
@@ -168,7 +168,7 @@ def test_the_vendor_default_is_reached_only_through_the_guarded_helper():
 
 def test_the_guarded_helper_still_consults_the_leash():
     """The funnel is only worth anything while it still checks."""
-    from hermes_cli import models
+    from atlas_cli import models
 
     source = Path(models.__file__).read_text(encoding="utf-8")
     body = re.search(
@@ -182,7 +182,7 @@ def test_the_guarded_helper_still_consults_the_leash():
 def test_a_locked_build_gets_no_vendor_id_from_the_helper(monkeypatch):
     """The behaviour the structure above is protecting."""
     from agent import ninegate_leash as leash
-    from hermes_cli import models
+    from atlas_cli import models
 
     monkeypatch.setattr(leash, "is_locked", lambda: True)
     monkeypatch.setattr(leash, "clamp_model", lambda model: "")

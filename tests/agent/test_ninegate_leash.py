@@ -103,7 +103,7 @@ def test_the_strip_list_still_covers_the_whole_provider_catalog(locked):
     never heard of it. This walks the live catalog — the same one the model
     picker is built from — and fails the moment the two disagree.
     """
-    from hermes_cli.provider_catalog import provider_catalog
+    from atlas_cli.provider_catalog import provider_catalog
 
     # Copilot's credential, which is also what git, the gh CLI and the GitHub
     # MCP server authenticate with. Covered by the endpoint clamp instead.

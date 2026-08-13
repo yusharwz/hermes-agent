@@ -1,1 +1,1 @@
-# Hermes plugins package
+# Atlas plugins package

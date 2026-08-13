@@ -48,7 +48,7 @@ except ImportError:
 from gateway.config import Platform, PlatformConfig
 from gateway.platforms.base import BasePlatformAdapter, MessageEvent, MessageType, SendResult
 from plugins.platforms.wecom.wecom_crypto import WXBizMsgCrypt, WeComCryptoError
-from hermes_constants import DEFAULT_WECOM_CALLBACK_PORT
+from atlas_constants import DEFAULT_WECOM_CALLBACK_PORT
 
 logger = logging.getLogger(__name__)
 

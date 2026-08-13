@@ -18,9 +18,9 @@ test('spawnUpdaterProcess hides the updater console and detaches the child on Wi
   }
 
   const result = spawnUpdaterProcess(
-    'hermes-setup.exe',
+    'atlas-setup.exe',
     ['--update', '--branch', 'main'],
-    { cwd: 'C:\\Hermes', detached: true, stdio: 'ignore' },
+    { cwd: 'C:\\Atlas', detached: true, stdio: 'ignore' },
     {
       isWindows: true,
       spawnProcess: (command, args, options) => {
@@ -36,8 +36,8 @@ test('spawnUpdaterProcess hides the updater console and detaches the child on Wi
   assert.deepEqual(calls, [
     {
       args: ['--update', '--branch', 'main'],
-      command: 'hermes-setup.exe',
-      options: { cwd: 'C:\\Hermes', detached: true, stdio: 'ignore', windowsHide: true }
+      command: 'atlas-setup.exe',
+      options: { cwd: 'C:\\Atlas', detached: true, stdio: 'ignore', windowsHide: true }
     }
   ])
 })
@@ -46,7 +46,7 @@ test('spawnUpdaterProcess preserves updater options off Windows', () => {
   let capturedOptions: SpawnOptions | undefined
 
   spawnUpdaterProcess(
-    'hermes-setup',
+    'atlas-setup',
     ['--update'],
     { detached: true, stdio: 'ignore' },
     {
@@ -63,8 +63,8 @@ test('spawnUpdaterProcess preserves updater options off Windows', () => {
 })
 
 test('resolveStagedUpdaterBinary hands Windows the staged installer it finds', () => {
-  const home = 'C:\\Users\\hermes\\AppData\\Local\\hermes'
-  const staged = path.join(home, 'hermes-setup.exe')
+  const home = 'C:\\Users\\atlas\\AppData\\Local\\atlas'
+  const staged = path.join(home, 'atlas-setup.exe')
   const probed: string[] = []
 
   const resolved = resolveStagedUpdaterBinary(home, {
@@ -80,12 +80,12 @@ test('resolveStagedUpdaterBinary hands Windows the staged installer it finds', (
   assert.deepEqual(probed, [staged])
 })
 
-test('resolveStagedUpdaterBinary returns null off Windows even when hermes-setup is staged (#74836)', () => {
-  const home = '/Users/hermes/.hermes'
+test('resolveStagedUpdaterBinary returns null off Windows even when atlas-setup is staged (#74836)', () => {
+  const home = '/Users/atlas/.atlas'
   let probes = 0
 
   const resolved = resolveStagedUpdaterBinary(home, {
-    // The installer stages hermes-setup on macOS/Linux too, so "it exists" is
+    // The installer stages atlas-setup on macOS/Linux too, so "it exists" is
     // the normal case — and precisely the one that must not win.
     fileExists: () => {
       probes += 1
@@ -100,7 +100,7 @@ test('resolveStagedUpdaterBinary returns null off Windows even when hermes-setup
 })
 
 test('resolveStagedUpdaterBinary returns null on Windows when nothing is staged', () => {
-  const resolved = resolveStagedUpdaterBinary('C:\\Users\\hermes\\AppData\\Local\\hermes', {
+  const resolved = resolveStagedUpdaterBinary('C:\\Users\\atlas\\AppData\\Local\\atlas', {
     fileExists: () => false,
     isWindows: true
   })

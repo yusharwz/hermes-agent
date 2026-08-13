@@ -64,7 +64,7 @@
 }
 
 .heroAccent {
-  color: #ffd700;
+  color: #2FBFDE;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
@@ -170,7 +170,7 @@
 
 .clearBtn:hover {
   opacity: 1;
-  color: #ffd700;
+  color: #2FBFDE;
 }
 
 .sourcePills {
@@ -204,7 +204,7 @@
 .srcPillActive {
   border-color: var(--pill-border, rgba(255, 215, 0, 0.3));
   background: var(--pill-bg, rgba(255, 215, 0, 0.06));
-  color: var(--pill-color, #ffd700);
+  color: var(--pill-color, #2FBFDE);
 }
 
 .srcCount {
@@ -275,7 +275,7 @@
 }
 
 .sidebarClear:hover {
-  color: #ffd700;
+  color: #2FBFDE;
 }
 
 .catList {
@@ -308,7 +308,7 @@
 
 .catItemActive {
   background: rgba(255, 215, 0, 0.08);
-  color: #ffd700;
+  color: #2FBFDE;
 }
 
 .catItemIcon {
@@ -405,7 +405,7 @@
 }
 
 .clearAllBtn:hover {
-  color: #ffd700;
+  color: #2FBFDE;
 }
 
 
@@ -554,7 +554,7 @@
 
 .catButton:hover {
   background: rgba(255, 215, 0, 0.1);
-  color: #ffd700;
+  color: #2FBFDE;
   border-color: rgba(255, 215, 0, 0.25);
 }
 
@@ -792,7 +792,7 @@
 
 .highlight {
   background: rgba(255, 215, 0, 0.2);
-  color: #ffd700;
+  color: #2FBFDE;
   border-radius: 2px;
   padding: 0 1px;
 }
@@ -820,7 +820,7 @@
 .loadMoreBtn:hover {
   background: rgba(255, 215, 0, 0.08);
   border-color: rgba(255, 215, 0, 0.35);
-  color: #ffd700;
+  color: #2FBFDE;
 }
 
 
@@ -859,7 +859,7 @@
   border: 1px solid rgba(255, 215, 0, 0.25);
   border-radius: 6px;
   background: transparent;
-  color: #ffd700;
+  color: #2FBFDE;
   cursor: pointer;
   transition: all 0.2s;
 }

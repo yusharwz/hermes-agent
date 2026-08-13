@@ -71,7 +71,7 @@ function serve(progress: unknown[], info: unknown[] = [INFO]) {
     throw new Error(`unexpected path ${path}`)
   })
 
-  Object.defineProperty(window, 'hermesDesktop', { configurable: true, value: { api } })
+  Object.defineProperty(window, 'atlasDesktop', { configurable: true, value: { api } })
 }
 
 const settle = async (ms = 0) => {

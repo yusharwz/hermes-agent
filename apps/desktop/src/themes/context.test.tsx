@@ -5,7 +5,7 @@ import { __resetBackendSkinSync, ingestBackendSkin } from './backend-sync'
 import { ThemeProvider } from './context'
 
 // A skin file the backend announces must not reach the painted theme. The
-// live-authoring loop it used to serve — Hermes writes a skin, every surface
+// live-authoring loop it used to serve — Atlas writes a skin, every surface
 // repaints — is not part of this build; see themes/backend-sync.ts.
 const bloomberg = (foreground: string) => ({
   name: 'bloomberg',

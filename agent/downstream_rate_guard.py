@@ -3,13 +3,13 @@
 Gateways like a self-hosted multi-account router (``provider: custom``)
 multiplex several unrelated upstream accounts/models behind one endpoint and
 report which upstream actually served (or rejected) a request inside the
-error body, e.g. ``[antigravity/gemini-pro-agent] [429]: ...``. Hermes has no
+error body, e.g. ``[antigravity/gemini-pro-agent] [429]: ...``. Atlas has no
 way to know in advance which upstream a given call will land on — that
 routing decision happens entirely inside the gateway — so unlike
 :mod:`agent.nous_rate_guard` (one provider, one bucket) this guard is keyed
 by whatever upstream tag shows up in the error text.
 
-The problem this solves: Hermes can run many concurrent sessions against the
+The problem this solves: Atlas can run many concurrent sessions against the
 same gateway (WhatsApp DMs, the CLI/TUI, subagents, background review). When
 one session's request gets rate-limited by a specific upstream, its own
 retry already honors the reset window via ``Retry-After`` — but that
@@ -47,7 +47,7 @@ _KEY_SAFE_RE = re.compile(r"[^a-zA-Z0-9._-]+")
 # Matches the "[<tag>/<model>] [429]" shape a multi-account router embeds in
 # its proxied error body to identify which upstream rejected the request,
 # e.g. "[antigravity/gemini-pro-agent] [429]: {...}". The tag is the router's
-# own provider/account-pool name, not necessarily a Hermes-recognized
+# own provider/account-pool name, not necessarily a Atlas-recognized
 # provider id — it is only ever used as an opaque cache key here.
 _UPSTREAM_TAG_RE = re.compile(r"\[([a-zA-Z][\w.-]*)/[^\]/]+\]\s*\[429\]")
 
@@ -73,10 +73,10 @@ def extract_upstream_tag(error_text: str) -> Optional[str]:
 def _state_path(key: str) -> str:
     safe_key = _KEY_SAFE_RE.sub("_", key).strip("_") or "unknown"
     try:
-        from hermes_constants import get_hermes_home
-        base = get_hermes_home()
+        from atlas_constants import get_atlas_home
+        base = get_atlas_home()
     except ImportError:
-        base = os.path.join(os.path.expanduser("~"), ".hermes")
+        base = os.path.join(os.path.expanduser("~"), ".atlas")
     return os.path.join(base, _STATE_SUBDIR, f"downstream_{safe_key}.json")
 
 

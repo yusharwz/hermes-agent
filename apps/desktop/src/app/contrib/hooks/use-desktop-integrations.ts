@@ -65,7 +65,7 @@ export function useDesktopIntegrations({
     // surface, so removing the UI never reached it. The window it opens
     // describes an upstream update that must not be applied here, so the
     // request is answered by doing nothing.
-    const unsubscribe = window.hermesDesktop?.onOpenUpdatesRequested?.(() => {})
+    const unsubscribe = window.atlasDesktop?.onOpenUpdatesRequested?.(() => {})
 
     return () => {
       unsubscribe?.()
@@ -78,7 +78,7 @@ export function useDesktopIntegrations({
   // close the window, so claim it unconditionally — the menu then routes ⌘W
   // to us (close-preview-requested IPC) and we decide tab-vs-window.
   useEffect(() => {
-    window.hermesDesktop?.setPreviewShortcutActive?.(true)
+    window.atlasDesktop?.setPreviewShortcutActive?.(true)
   }, [])
 
   // Remember the open chat (session id for notifications/resume) AND the last
@@ -148,7 +148,7 @@ export function useDesktopIntegrations({
   // on screen. Runtime id is translated to the stored id the chat route is
   // keyed by; action buttons resolve in place.
   useEffect(() => {
-    const unsubscribe = window.hermesDesktop?.onFocusSession?.(sessionId => {
+    const unsubscribe = window.atlasDesktop?.onFocusSession?.(sessionId => {
       if (sessionId) {
         openSession(storedSessionIdForNotification(sessionId, runtimeIdByStoredSessionId.current), navigate, 'stack')
       }
@@ -158,16 +158,16 @@ export function useDesktopIntegrations({
   }, [navigate, runtimeIdByStoredSessionId])
 
   useEffect(() => {
-    const unsubscribe = window.hermesDesktop?.onNotificationAction?.(({ actionId, sessionId }) => {
+    const unsubscribe = window.atlasDesktop?.onNotificationAction?.(({ actionId, sessionId }) => {
       void respondToApprovalAction(sessionId ?? null, actionId)
     })
 
     return () => unsubscribe?.()
   }, [])
 
-  // hermes:// deep links -> a reviewable /blueprint command in the composer.
+  // atlas:// deep links -> a reviewable /blueprint command in the composer.
   useEffect(() => {
-    const unsubscribe = window.hermesDesktop?.onDeepLink?.(payload => {
+    const unsubscribe = window.atlasDesktop?.onDeepLink?.(payload => {
       if (!payload || payload.kind !== 'blueprint' || !payload.name) {
         return
       }
@@ -185,7 +185,7 @@ export function useDesktopIntegrations({
       requestComposerFocus('main')
     })
 
-    void window.hermesDesktop?.signalDeepLinkReady?.()
+    void window.atlasDesktop?.signalDeepLinkReady?.()
 
     return () => unsubscribe?.()
   }, [])
@@ -195,7 +195,7 @@ export function useDesktopIntegrations({
   // OS-standard window close, esp. secondary windows). The Win/Linux keyboard
   // path is the `view.closeTab` keybind (use-keybinds), sharing closeActiveTab.
   useEffect(() => {
-    const unsubscribe = window.hermesDesktop?.onClosePreviewRequested?.(
+    const unsubscribe = window.atlasDesktop?.onClosePreviewRequested?.(
       () => void closeActiveTab(id => navigate(sessionRoute(id)))
     )
 
@@ -204,7 +204,7 @@ export function useDesktopIntegrations({
 
   // File > Open Folder… — same open-folder-as-project upsert as the ⌘O keybind.
   useEffect(() => {
-    const unsubscribe = window.hermesDesktop?.onOpenFolderRequested?.(() => void openFolderAsProject())
+    const unsubscribe = window.atlasDesktop?.onOpenFolderRequested?.(() => void openFolderAsProject())
 
     return () => unsubscribe?.()
   }, [])

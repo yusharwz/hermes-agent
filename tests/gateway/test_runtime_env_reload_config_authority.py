@@ -1,8 +1,8 @@
 """Regression tests for gateway per-turn env reload preserving config authority.
 
 Issue #19158: startup bridges config.yaml agent.max_turns into
-HERMES_MAX_ITERATIONS, but a later per-turn load_dotenv(..., override=True)
-can restore a stale .env HERMES_MAX_ITERATIONS value before the next turn.
+ATLAS_MAX_ITERATIONS, but a later per-turn load_dotenv(..., override=True)
+can restore a stale .env ATLAS_MAX_ITERATIONS value before the next turn.
 """
 
 from __future__ import annotations
@@ -16,24 +16,24 @@ from gateway import run as gateway_run
 
 
 def test_reload_runtime_env_preserves_config_max_turns(tmp_path: Path, monkeypatch) -> None:
-    hermes_home = tmp_path / ".hermes"
-    hermes_home.mkdir()
-    (hermes_home / "config.yaml").write_text(
+    atlas_home = tmp_path / ".atlas"
+    atlas_home.mkdir()
+    (atlas_home / "config.yaml").write_text(
         yaml.safe_dump({"agent": {"max_turns": 9000}}),
         encoding="utf-8",
     )
-    (hermes_home / ".env").write_text(
-        "HERMES_MAX_ITERATIONS=90\nOPENROUTER_API_KEY=fresh-key\n",
+    (atlas_home / ".env").write_text(
+        "ATLAS_MAX_ITERATIONS=90\nOPENROUTER_API_KEY=fresh-key\n",
         encoding="utf-8",
     )
 
-    monkeypatch.setattr(gateway_run, "_hermes_home", hermes_home)
-    monkeypatch.setenv("HERMES_MAX_ITERATIONS", "9000")
+    monkeypatch.setattr(gateway_run, "_atlas_home", atlas_home)
+    monkeypatch.setenv("ATLAS_MAX_ITERATIONS", "9000")
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
 
     gateway_run._reload_runtime_env_preserving_config_authority()
 
     assert os.environ["OPENROUTER_API_KEY"] == "fresh-key"
-    assert os.environ["HERMES_MAX_ITERATIONS"] == "9000"
+    assert os.environ["ATLAS_MAX_ITERATIONS"] == "9000"
 
 

@@ -8,7 +8,7 @@ instances via ``PluginContext.register_image_gen_provider()``; the active one
 ``image_generate`` tool call.
 
 Providers live in ``<repo>/plugins/image_gen/<name>/`` (built-in, auto-loaded
-as ``kind: backend``) or ``~/.hermes/plugins/image_gen/<name>/`` (user, opt-in
+as ``kind: backend``) or ``~/.atlas/plugins/image_gen/<name>/`` (user, opt-in
 via ``plugins.enabled``).
 
 Unified surface
@@ -78,7 +78,7 @@ class ImageGenProvider(abc.ABC):
 
     @property
     def display_name(self) -> str:
-        """Human-readable label shown in ``hermes tools``. Defaults to ``name.title()``."""
+        """Human-readable label shown in ``atlas tools``. Defaults to ``name.title()``."""
         return self.name.title()
 
     def is_available(self) -> bool:
@@ -90,7 +90,7 @@ class ImageGenProvider(abc.ABC):
         return True
 
     def list_models(self) -> List[Dict[str, Any]]:
-        """Return catalog entries for ``hermes tools`` model picker.
+        """Return catalog entries for ``atlas tools`` model picker.
 
         Each entry::
 
@@ -107,7 +107,7 @@ class ImageGenProvider(abc.ABC):
         return []
 
     def get_setup_schema(self) -> Dict[str, Any]:
-        """Return provider metadata for the ``hermes tools`` picker.
+        """Return provider metadata for the ``atlas tools`` picker.
 
         Used by ``tools_config.py`` to inject this provider as a row in
         the Image Generation provider list. Shape::
@@ -153,7 +153,7 @@ class ImageGenProvider(abc.ABC):
         ``modalities`` declares whether the active backend/model supports
         text-to-image (``"text"``), image-to-image / editing (``"image"``),
         or both. The tool layer surfaces this in the dynamic schema so the
-        model knows when ``image_url`` is honored. Used by ``hermes tools``
+        model knows when ``image_url`` is honored. Used by ``atlas tools``
         for the picker too. Default: text-only (backward compatible — a
         provider that doesn't override this advertises text-to-image only).
         """
@@ -230,16 +230,16 @@ def normalize_reference_images(value: Any) -> Optional[List[str]]:
 def _images_cache_dir() -> Path:
     """Return the image cache directory, creating parents as needed.
 
-    Resolved through ``get_hermes_dir`` rather than assembled by hand, because
+    Resolved through ``get_atlas_dir`` rather than assembled by hand, because
     an install upgraded from the old layout keeps using ``image_cache/`` and
     that is what every reader resolves to — including the cleanup pass that
     prunes old media. Hand-building ``cache/images`` here put generated images
     somewhere nothing else looked, so on those installs they were never swept
     and the directory grew without bound.
     """
-    from hermes_constants import get_hermes_dir
+    from atlas_constants import get_atlas_dir
 
-    path = get_hermes_dir("cache/images", "image_cache")
+    path = get_atlas_dir("cache/images", "image_cache")
     path.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -250,7 +250,7 @@ def save_b64_image(
     prefix: str = "image",
     extension: str = "png",
 ) -> Path:
-    """Decode base64 image data and write it under ``$HERMES_HOME/cache/images/``.
+    """Decode base64 image data and write it under ``$ATLAS_HOME/cache/images/``.
 
     Returns the absolute :class:`Path` to the saved file.
 
@@ -284,7 +284,7 @@ def save_url_image(
     timeout: float = 60.0,
     max_bytes: int = 25 * 1024 * 1024,
 ) -> Path:
-    """Download an image URL and write it under ``$HERMES_HOME/cache/images/``.
+    """Download an image URL and write it under ``$ATLAS_HOME/cache/images/``.
 
     Used by providers (xAI, fallback OpenAI) whose API returns an *ephemeral*
     URL instead of inline base64 — those URLs frequently expire before a

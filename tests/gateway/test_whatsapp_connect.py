@@ -330,7 +330,7 @@ class TestKillPortProcess:
                 return mock_taskkill
             return MagicMock()
 
-        session_path = Path("/tmp/hermes-test/platforms/whatsapp/session")
+        session_path = Path("/tmp/atlas-test/platforms/whatsapp/session")
         with patch("plugins.platforms.whatsapp.adapter._IS_WINDOWS", True), \
              patch("gateway.status._read_process_cmdline",
                    return_value=f"node bridge.js --session {session_path}"), \
@@ -359,7 +359,7 @@ class TestKillPortProcess:
         from plugins.platforms.whatsapp import adapter as wa
 
         kills = []
-        session_path = Path("/tmp/hermes-test/platforms/whatsapp/session")
+        session_path = Path("/tmp/atlas-test/platforms/whatsapp/session")
         with patch("plugins.platforms.whatsapp.adapter._IS_WINDOWS", False), \
              patch("gateway.status._read_process_cmdline",
                    return_value=f"node bridge.js --session {session_path}"), \
@@ -443,7 +443,7 @@ class TestNoCredsPreflight:
     With the guard, ``connect()`` returns False immediately with a
     non-retryable fatal error so the reconnect watcher drops the platform
     and the gateway gets a single clear log line telling the user to run
-    ``hermes whatsapp``.
+    ``atlas whatsapp``.
     """
 
 

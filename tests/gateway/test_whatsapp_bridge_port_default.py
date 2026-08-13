@@ -6,7 +6,7 @@ drift, with nothing to notice when they did.
 
 WHY IT MATTERS MORE THAN A PORT NUMBER USUALLY WOULD
 ====================================================
-A customer may run this agent and upstream Hermes on the same machine. That is
+A customer may run this agent and upstream Atlas on the same machine. That is
 the point of separate homes, separate service units and separate binaries — and
 it worked until WhatsApp, where both defaulted to 3000. Starting a bridge used
 to mean freeing the port by signalling whatever was listening on it, so the
@@ -27,7 +27,7 @@ ADAPTER = ROOT / "plugins" / "platforms" / "whatsapp" / "adapter.py"
 
 
 def test_bridge_and_adapter_agree_on_the_default_port():
-    from hermes_constants import WHATSAPP_BRIDGE_PORT_DEFAULT
+    from atlas_constants import WHATSAPP_BRIDGE_PORT_DEFAULT
 
     bridge_default = re.search(
         r"getArg\(\s*'port'\s*,\s*'(\d+)'\s*\)", BRIDGE.read_text(encoding="utf-8")
@@ -36,9 +36,9 @@ def test_bridge_and_adapter_agree_on_the_default_port():
     assert int(bridge_default.group(1)) == WHATSAPP_BRIDGE_PORT_DEFAULT
 
 
-def test_the_default_is_not_the_port_hermes_uses():
+def test_the_default_is_not_the_port_atlas_uses():
     """3000 is upstream's, and it is not ours to take."""
-    from hermes_constants import WHATSAPP_BRIDGE_PORT_DEFAULT
+    from atlas_constants import WHATSAPP_BRIDGE_PORT_DEFAULT
 
     assert WHATSAPP_BRIDGE_PORT_DEFAULT != 3000
 
@@ -47,14 +47,14 @@ def test_the_adapter_reads_the_default_rather_than_repeating_it():
     """A literal here is how the two got out of step in the first place."""
     source = ADAPTER.read_text(encoding="utf-8")
     assert not re.search(r'bridge_port["\']\s*,\s*3000', source), (
-        "adapter.py must take the default from hermes_constants, not restate it"
+        "adapter.py must take the default from atlas_constants, not restate it"
     )
     assert source.count("WHATSAPP_BRIDGE_PORT_DEFAULT") >= 3
 
 
 def test_an_adapter_with_no_configured_port_uses_the_shared_default():
     from gateway.config import PlatformConfig
-    from hermes_constants import WHATSAPP_BRIDGE_PORT_DEFAULT
+    from atlas_constants import WHATSAPP_BRIDGE_PORT_DEFAULT
     from plugins.platforms.whatsapp.adapter import WhatsAppAdapter
 
     adapter = WhatsAppAdapter(PlatformConfig(enabled=True))

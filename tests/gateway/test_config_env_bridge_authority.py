@@ -1,6 +1,6 @@
 """Regression tests for the config.yaml → env var bridge in gateway/run.py.
 
-Guards against the 60-vs-500 bug where a stale `.env HERMES_MAX_ITERATIONS=60`
+Guards against the 60-vs-500 bug where a stale `.env ATLAS_MAX_ITERATIONS=60`
 entry silently shadowed `agent.max_turns: 500` in config.yaml because the
 bridge used `if X not in os.environ` guards. After PR#18413 the bridge
 treats config.yaml as authoritative and unconditionally overwrites .env
@@ -21,7 +21,7 @@ import pytest
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
-def _run_gateway_import(hermes_home: Path, initial_env: dict[str, str]) -> dict[str, str]:
+def _run_gateway_import(atlas_home: Path, initial_env: dict[str, str]) -> dict[str, str]:
     """Import gateway.run in a clean subprocess and return the post-import env.
 
     The bridge runs at module-import time, so simply importing is enough
@@ -41,13 +41,13 @@ def _run_gateway_import(hermes_home: Path, initial_env: dict[str, str]) -> dict[
             sys.exit(2)
 
         for k in (
-            "HERMES_MAX_ITERATIONS",
-            "HERMES_AGENT_TIMEOUT",
-            "HERMES_AGENT_TIMEOUT_WARNING",
-            "HERMES_GATEWAY_BUSY_INPUT_MODE",
-            "HERMES_GATEWAY_BUSY_TEXT_MODE",
-            "HERMES_GATEWAY_PLATFORM_CONNECT_TIMEOUT",
-            "HERMES_TIMEZONE",
+            "ATLAS_MAX_ITERATIONS",
+            "ATLAS_AGENT_TIMEOUT",
+            "ATLAS_AGENT_TIMEOUT_WARNING",
+            "ATLAS_GATEWAY_BUSY_INPUT_MODE",
+            "ATLAS_GATEWAY_BUSY_TEXT_MODE",
+            "ATLAS_GATEWAY_PLATFORM_CONNECT_TIMEOUT",
+            "ATLAS_TIMEZONE",
         ):
             v = os.environ.get(k)
             if v is not None:
@@ -55,7 +55,7 @@ def _run_gateway_import(hermes_home: Path, initial_env: dict[str, str]) -> dict[
         """
     )
     env = dict(initial_env)
-    env["HERMES_HOME"] = str(hermes_home)
+    env["ATLAS_HOME"] = str(atlas_home)
     # Keep PATH / PYTHONPATH so venv imports resolve.
     for k in ("PATH", "PYTHONPATH", "VIRTUAL_ENV", "HOME"):
         if k in os.environ and k not in env:
@@ -102,50 +102,50 @@ def _write_env(home: Path, entries: dict[str, str]) -> None:
 
 
 @pytest.fixture
-def hermes_home(tmp_path: Path) -> Path:
-    home = tmp_path / ".hermes"
+def atlas_home(tmp_path: Path) -> Path:
+    home = tmp_path / ".atlas"
     home.mkdir()
     return home
 
 
-def test_config_gateway_timeout_wins_over_stale_env(hermes_home: Path) -> None:
+def test_config_gateway_timeout_wins_over_stale_env(atlas_home: Path) -> None:
     """Every agent.* bridge key must be config-authoritative, not .env-authoritative."""
-    _write_config(hermes_home, agent_cfg={
+    _write_config(atlas_home, agent_cfg={
         "gateway_timeout": 1800,
         "gateway_timeout_warning": 900,
     })
-    _write_env(hermes_home, {
-        "HERMES_AGENT_TIMEOUT": "60",
-        "HERMES_AGENT_TIMEOUT_WARNING": "30",
+    _write_env(atlas_home, {
+        "ATLAS_AGENT_TIMEOUT": "60",
+        "ATLAS_AGENT_TIMEOUT_WARNING": "30",
     })
 
-    env = _run_gateway_import(hermes_home, initial_env={})
+    env = _run_gateway_import(atlas_home, initial_env={})
 
-    assert env.get("HERMES_AGENT_TIMEOUT") == "1800"
-    assert env.get("HERMES_AGENT_TIMEOUT_WARNING") == "900"
+    assert env.get("ATLAS_AGENT_TIMEOUT") == "1800"
+    assert env.get("ATLAS_AGENT_TIMEOUT_WARNING") == "900"
 
 
-def test_config_platform_connect_timeout_supplies_env_when_unset(hermes_home: Path) -> None:
+def test_config_platform_connect_timeout_supplies_env_when_unset(atlas_home: Path) -> None:
     """config.yaml:gateway.platform_connect_timeout supplies the env var when
     it isn't already set (#19776 — config surface for the Discord connect
     timeout, replacing the undocumented env-var-only workaround)."""
-    _write_config(hermes_home, gateway_cfg={"platform_connect_timeout": 90})
+    _write_config(atlas_home, gateway_cfg={"platform_connect_timeout": 90})
 
-    env = _run_gateway_import(hermes_home, initial_env={})
+    env = _run_gateway_import(atlas_home, initial_env={})
 
-    assert env.get("HERMES_GATEWAY_PLATFORM_CONNECT_TIMEOUT") == "90"
+    assert env.get("ATLAS_GATEWAY_PLATFORM_CONNECT_TIMEOUT") == "90"
 
 
-def test_env_platform_connect_timeout_wins_over_config(hermes_home: Path) -> None:
+def test_env_platform_connect_timeout_wins_over_config(atlas_home: Path) -> None:
     """Unlike the agent.*/display.*/timezone bridges (config-authoritative),
-    HERMES_GATEWAY_PLATFORM_CONNECT_TIMEOUT is the manual-override escape hatch:
+    ATLAS_GATEWAY_PLATFORM_CONNECT_TIMEOUT is the manual-override escape hatch:
     an explicitly-set env var WINS over config.yaml. This divergence is
     intentional (#19776) — the env var is the operator's emergency knob."""
-    _write_config(hermes_home, gateway_cfg={"platform_connect_timeout": 90})
+    _write_config(atlas_home, gateway_cfg={"platform_connect_timeout": 90})
 
     env = _run_gateway_import(
-        hermes_home,
-        initial_env={"HERMES_GATEWAY_PLATFORM_CONNECT_TIMEOUT": "120"},
+        atlas_home,
+        initial_env={"ATLAS_GATEWAY_PLATFORM_CONNECT_TIMEOUT": "120"},
     )
 
-    assert env.get("HERMES_GATEWAY_PLATFORM_CONNECT_TIMEOUT") == "120"
+    assert env.get("ATLAS_GATEWAY_PLATFORM_CONNECT_TIMEOUT") == "120"

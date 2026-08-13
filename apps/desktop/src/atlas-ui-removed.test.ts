@@ -1,5 +1,5 @@
 /**
- * The Hermes surfaces Atlas removed stay removed.
+ * The Atlas surfaces Atlas removed stay removed.
  *
  * This is a tripwire, not a unit test. Every check below corresponds to
  * something that was once decided at RUNTIME — the renderer asked the backend

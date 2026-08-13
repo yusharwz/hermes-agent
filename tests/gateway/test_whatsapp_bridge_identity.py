@@ -6,7 +6,7 @@ reach across an installation boundary:
   * Reuse. It probed ``/health`` and, if a bridge answered and its script hash
     matched, adopted it — "Using existing bridge". Nothing asked which WhatsApp
     account that bridge was signed in as. A second install, a second profile,
-    or upstream Hermes on a colliding default would all answer, and adopting
+    or upstream Atlas on a colliding default would all answer, and adopting
     one means this gateway starts reading and replying on somebody else's
     number. The scoped session lock cannot catch it: a different session is a
     different lock, and both holders believe they are alone.
@@ -51,7 +51,7 @@ def test_our_own_stale_bridge_is_evicted(session, monkeypatch):
 
 
 def test_another_installs_bridge_is_left_alone(session, tmp_path, monkeypatch):
-    """The exact Hermes-beside-Atlas case: a real bridge, a real session, not ours."""
+    """The exact Atlas-beside-Atlas case: a real bridge, a real session, not ours."""
     killed = []
     theirs = tmp_path / "their-home" / "whatsapp" / "session"
     monkeypatch.setattr(wa, "_IS_WINDOWS", False)

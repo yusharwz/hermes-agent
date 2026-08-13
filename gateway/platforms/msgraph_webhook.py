@@ -20,7 +20,7 @@ except ImportError:
     web = None  # type: ignore[assignment]
 
 from gateway.config import Platform, PlatformConfig
-from hermes_constants import DEFAULT_MSGRAPH_WEBHOOK_PORT
+from atlas_constants import DEFAULT_MSGRAPH_WEBHOOK_PORT
 from gateway.platforms.base import (
     BasePlatformAdapter,
     MessageEvent,

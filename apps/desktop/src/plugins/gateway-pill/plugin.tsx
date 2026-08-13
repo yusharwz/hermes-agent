@@ -6,7 +6,7 @@
  * messaging platforms), same copy (`useI18n`), same readiness logic
  * (`evaluateRuntimeReadiness` over `host.request`). The point: a plugin can
  * rebuild a REAL core feature through the SDK alone — only
- * `@hermes/plugin-sdk` + react (lint-fenced).
+ * `@atlas/plugin-sdk` + react (lint-fenced).
  *
  * Pattern notes:
  *  - a module-level `atom` shares the readiness poll between the live label
@@ -20,7 +20,7 @@ import {
   Button,
   cn,
   evaluateRuntimeReadiness,
-  type HermesPlugin,
+  type AtlasPlugin,
   host,
   icons,
   LogView,
@@ -32,7 +32,7 @@ import {
   Tip,
   useI18n,
   useValue
-} from '@hermes/plugin-sdk'
+} from '@atlas/plugin-sdk'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 
 const READINESS_POLL_MS = 15_000
@@ -347,7 +347,7 @@ function PillLabel() {
 
 // ---------------------------------------------------------------------------
 
-const plugin: HermesPlugin = {
+const plugin: AtlasPlugin = {
   id: 'gateway-pill',
   name: 'Gateway Pill',
   register(ctx) {

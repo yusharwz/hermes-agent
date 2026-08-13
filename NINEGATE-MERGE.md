@@ -14,7 +14,7 @@ a tracking ref, or a local branch pointing at `NousResearch/hermes-agent`.
 
 | remote | points at | what it is |
 | --- | --- | --- |
-| `origin` | `yusharwz/hermes-agent` | ours, and the only remote |
+| `origin` | `yusharwz/atlas-agent` | ours, and the only remote |
 
 | branch | tracks | what it is |
 | --- | --- | --- |
@@ -45,8 +45,16 @@ Severing did not make upstream unreachable — it made reaching for it
 deliberate. Fetch by URL into a scratch ref outside `refs/remotes/`, so no
 tracking ref is created and no future `git fetch` re-arms the old path:
 
+**Since Phase 3.2 a raw upstream patch no longer applies.** The tree is natively
+Atlas at rest, so `git cherry-pick <upstream sha>` fails on its own context
+lines in any file that mentions the name — 4.651 of 8.192 tracked files, more
+than half. Proven, not assumed: applying one raw gives
+`error: hermes_cli/main.py: does not exist in index`.
+
+Put the patch through the same transform the tree went through, then apply it:
+
 ```bash
-cd ~/.hermes/hermes-agent
+cd ~/src/atlas-fork
 git branch --show-current          # must be ninegate-lock. Always.
 
 UP=git@github.com:NousResearch/hermes-agent.git
@@ -55,17 +63,34 @@ UP=git@github.com:NousResearch/hermes-agent.git
 git fetch "$UP" main:refs/upstream-review/main
 git log --oneline upstream-merge-base..refs/upstream-review/main
 
-# Cherry-pick the fix you came for. Prefer this to a full merge:
-git cherry-pick <sha>
+# Take the fix you came for, ported into Atlas vocabulary.
+git format-patch --stdout <sha>^..<sha> > /tmp/up.patch
+(cd <ninegate>/packages/installer &&
+   npm run atlas:port-upstream -- --in /tmp/up.patch --out /tmp/up-atlas.patch)
+git am /tmp/up-atlas.patch
 
-# If a full merge really is the intent, it is still a merge — run the whole
-# gate below afterwards, then re-anchor the base:
-#   git merge refs/upstream-review/main
+# NOT `git am -3`. The `index <sha>..<sha>` lines name upstream's un-renamed
+# blobs; this repository does not have them and they would not match the
+# renamed content anyway, so three-way fails for a reason that has nothing to
+# do with the port. When context has genuinely moved, use
+#   git apply --reject /tmp/up-atlas.patch
+# and resolve the .rej files by hand.
+
+# A full merge is no longer a thing you can do in one command — every file
+# would conflict. Port commit by commit, then re-anchor the base:
 #   git tag -f -a upstream-merge-base -m "merged <date>" refs/upstream-review/main
 
 # Always clean up. Leaving this ref behind rebuilds the surface just severed.
 git update-ref -d refs/upstream-review/main
 ```
+
+**What the port cannot do for you.** It renames by rule, and two kinds of
+`hermes` are model vocabulary rather than branding: a bare generation
+(`hermes-3`) and the same thing written as a regex (`hermes[-_ ]?[34]`). The
+rules protect the first; nothing can see the second. If a ported patch touches
+`atlas_cli/model_switch.py` or `agent/coding_context.py`, read those hunks by
+hand — and trust `tests/atlas_cli/test_nous_atlas_non_agentic.py`, which is
+what caught it the first time.
 
 Do not re-add a remote named `upstream` or `origin` for this. A remote carries
 a fetch refspec, and a refspec is exactly the thing that turns "someone ran
@@ -73,9 +98,9 @@ git fetch" back into "the tree moved".
 
 ## What is actually at risk
 
-The fork is still called *hermes* inside — `hermes_cli`, `hermes_constants`.
+The fork is still called *atlas* inside — `atlas_cli`, `atlas_constants`.
 The rename to Atlas happens later, at rebrand. So merging upstream is normal at
-this level, and a "hermes" appearing in a diff is not a problem.
+this level, and a "atlas" appearing in a diff is not a problem.
 
 What must not come back with a merge is upstream's freedom:
 
@@ -91,7 +116,7 @@ key.
 ## The procedure
 
 ```bash
-cd ~/.hermes/hermes-agent
+cd ~/src/atlas-fork
 git branch --show-current          # must be ninegate-lock. Always.
 git status --porcelain             # must be empty
 
@@ -101,34 +126,40 @@ UP=git@github.com:NousResearch/hermes-agent.git
 git fetch "$UP" main:refs/upstream-review/main
 git log --oneline upstream-merge-base..refs/upstream-review/main   # since the last merge
 git diff HEAD...refs/upstream-review/main --stat -- \
-    agent/ninegate_leash.py agent/agent_init.py hermes_cli/models.py \
+    agent/ninegate_leash.py agent/agent_init.py atlas_cli/models.py \
     scripts/whatsapp-bridge/bridge.js
 
-# 2. Take it — a cherry-pick of the specific fix where possible.
-git merge refs/upstream-review/main
+# 2. Take it — ported, commit by commit. See the section above.
+git format-patch --stdout <sha>^..<sha> > /tmp/up.patch
+(cd <ninegate>/packages/installer &&
+   npm run atlas:port-upstream -- --in /tmp/up.patch --out /tmp/up-atlas.patch)
+git am /tmp/up-atlas.patch
 git tag -f -a upstream-merge-base -m "merged $(date -I)" refs/upstream-review/main
 git update-ref -d refs/upstream-review/main
 
 # 3. Prove the lock survived. Do this BEFORE anything else.
 bash <ninegate>/scripts/verify-fork-integrity.sh
 
-# 4. Full suite, one run, alone.
+# 4. Full suite, one run, alone. Per-file isolation — NOT monolithic pytest,
+#    which reports ~1000 order-pollution failures that are not real.
 rm -rf /tmp/pytest-of-*
-PYTHONPATH=<pytest-lib> ~/.atlas/atlas-agent/.venv/bin/python -m pytest tests/ -q \
-  -p no:randomly --ignore=tests/acp --ignore=tests/acp_adapter \
-  --ignore=tests/tools/test_mcp_tool.py --ignore=tests/tools/test_mcp_oauth_metadata.py
+~/.hermes/hermes-agent/venv/bin/python scripts/run_tests_parallel.py -q
 
-# 5. Only now: rebrand, verify the rename, build.
+# 5. Prove the port did not leave upstream vocabulary behind — or eat a
+#    protected span. No rebrand step: the tree is already Atlas.
 cd <ninegate>/packages/installer
-npm run atlas:rebrand -- --src ~/.hermes/hermes-agent --out <atlas-agent checkout>
-npm run atlas:verify -- --dir <atlas-agent checkout>
+npm run atlas:verify -- --dir ~/src/atlas-fork
 ```
 
-Step 3 and step 5's `atlas:verify` ask different questions at different times.
-`verify-fork-integrity.sh` reads **this** tree and asks whether the lock is
-still enforced. `atlas:verify` reads the **rebranded output** and asks whether
-the rename missed a "hermes" or rewrote a span it was meant to protect. Both,
-in that order.
+Step 3 and step 5 ask different questions. `verify-fork-integrity.sh` asks
+whether the **lock** is still enforced. `atlas:verify` asks whether the tree
+still speaks Atlas throughout — no upstream vocabulary left un-ported, and no
+protected span (model id, upstream URL, copyright line) rewritten by mistake.
+Both, in that order.
+
+Baseline for step 4 is **48 failures across 16 files**, and about four of those
+are flaky under parallel load — they pass when run alone. Compare the failing
+FILE SET, not the number.
 
 ## When verify-fork-integrity fails
 
@@ -169,11 +200,11 @@ Things that fail and are not the merge's fault. Do not chase them:
   wrong; it was quoted as a release gate for weeks. A clean full-suite run in an
   isolated clone measured **996 failed / 22890 passed**. Nearly all of it is
   order pollution — the same files pass 131/131 when run alone — because the
-  suite reads the real `~/.hermes` while live units write to it. Until the
+  suite reads the real `~/.atlas` while live units write to it. Until the
   harness is isolated, "green" is unreachable on this machine: compare the
   **diff of the failure set** between a base clone and a head clone, each with
   its own `--basetemp`, and never read the absolute number as a verdict.
 - `bridge.native.test.mjs` fails in a rebranded tree — the rebrand drops
   `node_modules`, so Baileys is not there. It passes in this tree.
-- The bundle carries `hermes-agent.nousresearch.com` in the remote-install
+- The bundle carries `atlas-agent.nousresearch.com` in the remote-install
   message. That is a protected attribution span, deliberately preserved.

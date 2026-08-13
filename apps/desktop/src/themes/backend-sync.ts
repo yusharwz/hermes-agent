@@ -21,7 +21,7 @@
  * nothing.
  */
 
-import type { HermesSkin } from '@hermes/shared/skin'
+import type { AtlasSkin } from '@atlas/shared/skin'
 import { atom } from 'nanostores'
 
 import type { DesktopTheme } from './types'
@@ -44,4 +44,4 @@ export function __resetBackendSkinSync(): void {
  * Deliberately not an error and not a warning: a customer whose config names a
  * skin has done nothing wrong, and the event arrives on every connect.
  */
-export function ingestBackendSkin(_skin: HermesSkin | undefined | null, _options: { apply: boolean }): void {}
+export function ingestBackendSkin(_skin: AtlasSkin | undefined | null, _options: { apply: boolean }): void {}

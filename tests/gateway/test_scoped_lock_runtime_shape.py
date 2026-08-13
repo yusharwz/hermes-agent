@@ -34,9 +34,9 @@ from gateway.status import (
 )
 
 
-RUN = "/opt/app/.venv/bin/python -m hermes_cli.main gateway run"
-RESTART = "/opt/app/.venv/bin/python -m hermes_cli.main gateway restart"
-STATUS = "/opt/app/.venv/bin/python -m hermes_cli.main gateway status"
+RUN = "/opt/app/.venv/bin/python -m atlas_cli.main gateway run"
+RESTART = "/opt/app/.venv/bin/python -m atlas_cli.main gateway restart"
+STATUS = "/opt/app/.venv/bin/python -m atlas_cli.main gateway status"
 CRON = "/usr/sbin/cron -f"
 
 
@@ -81,7 +81,7 @@ def sleeper(tmp_path):
     script = tmp_path / "main.py"
     script.write_text("import time; time.sleep(120)")
     proc = subprocess.Popen(
-        [sys.executable, str(script), "hermes_cli.main", "gateway", "restart"]
+        [sys.executable, str(script), "atlas_cli.main", "gateway", "restart"]
     )
     time.sleep(1)
     try:
@@ -93,10 +93,10 @@ def sleeper(tmp_path):
 
 def test_a_live_restart_shaped_gateway_keeps_its_lock(sleeper, tmp_path, monkeypatch):
     """The regression, end to end: this used to hand the session away."""
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("ATLAS_HOME", str(tmp_path / "home"))
     identity = "/sessions/whatsapp"
     _register_lock_for(
-        sleeper.pid, identity, ["hermes_cli.main", "gateway", "restart"]
+        sleeper.pid, identity, ["atlas_cli.main", "gateway", "restart"]
     )
 
     acquired, existing = acquire_scoped_lock("whatsapp-session", identity)
@@ -107,12 +107,12 @@ def test_a_live_restart_shaped_gateway_keeps_its_lock(sleeper, tmp_path, monkeyp
 
 def test_a_dead_holder_still_releases_its_lock(tmp_path, monkeypatch):
     """Fixing the false positive must not create a false negative."""
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("ATLAS_HOME", str(tmp_path / "home"))
     identity = "/sessions/whatsapp-dead"
 
     proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
     pid = proc.pid
-    _register_lock_for(pid, identity, ["hermes_cli.main", "gateway", "restart"])
+    _register_lock_for(pid, identity, ["atlas_cli.main", "gateway", "restart"])
     proc.kill()
     proc.wait(timeout=30)
 

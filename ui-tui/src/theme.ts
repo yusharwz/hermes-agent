@@ -1,4 +1,4 @@
-import type { SkinBranding, SkinColors } from '@hermes/shared/skin'
+import type { SkinBranding, SkinColors } from '@atlas/shared/skin'
 
 import { desaturate, grayOf, liftForContrast, mix, parseColor, relativeLuminance, toHex } from './lib/color.js'
 
@@ -149,8 +149,8 @@ function circularDistance(a: number, b: number): number {
   return Math.min(distance, 1 - distance)
 }
 
-// Mirrors @hermes/ink's colorize.ts. Keep local: app code compiles from
-// ui-tui/src, while @hermes/ink is bundled separately from packages/.
+// Mirrors @atlas/ink's colorize.ts. Keep local: app code compiles from
+// ui-tui/src, while @atlas/ink is bundled separately from packages/.
 function richEightBitColorNumber(red: number, green: number, blue: number): number {
   const [, saturation, lightness] = rgbToHsl(red, green, blue)
 
@@ -250,7 +250,7 @@ export function themeToneHex(tone: string): string {
 // ── Defaults ─────────────────────────────────────────────────────────
 
 const BRAND: ThemeBrand = {
-  name: 'Hermes Agent',
+  name: 'Atlas Agent',
   icon: '⚕',
   prompt: '❯',
   welcome: 'Type your message or /help for commands.',
@@ -369,29 +369,29 @@ export function buildPalette(seeds: ThemeSeeds, isLight: boolean): ThemeColors {
 
 export const DARK_SEEDS: ThemeSeeds = {
   accent: '#FFBF00',
-  // The classic Hermes navy surfaces are IDENTITY, not derivation drift —
+  // The classic Atlas navy surfaces are IDENTITY, not derivation drift —
   // keep them as explicit fill seeds (the ladder derives them for skins
   // that don't care).
   activeRow: '#333355',
   bg: '#101014',
-  border: '#CD7F32',
+  border: '#1A94B8',
   error: '#ef5350',
   ok: '#4caf50',
-  primary: '#FFD700',
+  primary: '#2FBFDE',
   prompt: '#FFF8DC',
   selection: '#3a3a55',
   shellDollar: '#4dabf7',
   statusBad: '#FF8C00',
   statusCritical: '#FF6B6B',
   statusGood: '#8FBC8F',
-  statusWarn: '#FFD700',
+  statusWarn: '#2FBFDE',
   surface: '#1a1a2e',
   text: '#FFF8DC',
   warn: '#ffa726'
 }
 
 // Light-terminal seeds: darker golds/ambers that stay legible on white.
-// The classic light-mode Hermes look was never hand-authored: for years the
+// The classic light-mode Atlas look was never hand-authored: for years the
 // TUI emitted the DARK golds and hosts with xterm's minimumContrastRatio
 // (Cursor defaults to 4.5) lifted them against white — hue and saturation
 // kept, luminance clamped. These seeds are those exact lifts
@@ -465,7 +465,7 @@ export const LIGHT_THEME: Theme = {
 // terminal window compositing over a light editor, where xterm applies NO
 // contrast lift of its own (there is no solid bg to measure against) — the
 // beloved classic look is the authored palette rendered essentially RAW:
-// vivid #FFD700 gold (~1.36:1), not a WCAG-darkened mustard. So the light
+// vivid #2FBFDE gold (~1.36:1), not a WCAG-darkened mustard. So the light
 // floor is a near-invisible rescue only (catches cream #FFF8DC at 1.08 but
 // leaves the golds untouched). Pixel-sampled target: #F5C242 (L61 S90),
 // which the previous 1.45 floor crushed to #867000 (L26) — the reported mud.
@@ -541,10 +541,10 @@ function adaptColorsToBackground(colors: ThemeColors, isLight: boolean, base: Th
 }
 
 /** The background hex adaptation measures contrast against: the OSC-11
- *  answer when known (cached in HERMES_TUI_BACKGROUND), else the mode's
+ *  answer when known (cached in ATLAS_TUI_BACKGROUND), else the mode's
  *  assumed pole. */
 function referenceBackground(isLight: boolean, env: NodeJS.ProcessEnv = process.env): string {
-  const cached = (env.HERMES_TUI_BACKGROUND ?? '').trim()
+  const cached = (env.ATLAS_TUI_BACKGROUND ?? '').trim()
 
   if (cached && backgroundLuminance(cached) !== null) {
     return cached.startsWith('#') ? cached : `#${cached}`
@@ -591,7 +591,7 @@ export interface ThemeTones {
  * "reproduces the original hand-tuned tones" test for the contract):
  *
  *   dark muted  #CC9B1F ≈ desaturate(mix(accent, bg, .19), .16)  (err 3)
- *   dark label  #DAA520 ≈ desaturate(mix(accent, bg, .13), .16)  (err 3)
+ *   dark label  #29A6C2 ≈ desaturate(mix(accent, bg, .13), .16)  (err 3)
  *   dark status #C0C0C0 = grayOf(mix(text, bg, .24))             (err 0)
  *   light muted #946C08 ≈ desaturate(accent, .05)                (err 2)
  *   light label #8E6B13 ≈ desaturate(mix(accent, text, .03), .15) (err 2)
@@ -641,13 +641,13 @@ const FALSE_RE = /^(?:0|false|no|off)$/
 
 // TERM_PROGRAM fallback allow-list for terminals whose default profile is
 // light and which may not expose COLORFGBG. This currently includes Apple
-// Terminal. Explicit HERMES_TUI_THEME / COLORFGBG signals above still win,
+// Terminal. Explicit ATLAS_TUI_THEME / COLORFGBG signals above still win,
 // so dark Apple Terminal profiles that advertise a dark background stay dark.
 const LIGHT_DEFAULT_TERM_PROGRAMS = new Set<string>(['Apple_Terminal'])
 
 // Best-effort RGB → luminance check.  Currently only accepts a 3- or
 // 6-digit hex value (with or without a leading `#`); the env var name
-// `HERMES_TUI_BACKGROUND` is intentionally generic so a future OSC11
+// `ATLAS_TUI_BACKGROUND` is intentionally generic so a future OSC11
 // query helper can cache its answer there too, but additional formats
 // (rgb()/hsl()/named colours) would need explicit parsing here first.
 const LUMA_LIGHT_THRESHOLD = 0.6
@@ -684,12 +684,12 @@ function backgroundLuminance(raw: string): null | number {
 
 // Pick light vs dark with ordered, explainable signals (#11300):
 //
-//   1. `HERMES_TUI_LIGHT` boolean — `1`/`true`/`yes`/`on` → light;
+//   1. `ATLAS_TUI_LIGHT` boolean — `1`/`true`/`yes`/`on` → light;
 //      `0`/`false`/`no`/`off` → dark.  Either explicit value wins
 //      regardless of any later signal.
-//   2. `HERMES_TUI_THEME` named override — `light` / `dark` win over
+//   2. `ATLAS_TUI_THEME` named override — `light` / `dark` win over
 //      every signal below.
-//   3. `HERMES_TUI_BACKGROUND` hex hint (3- or 6-digit) — luminance
+//   3. `ATLAS_TUI_BACKGROUND` hex hint (3- or 6-digit) — luminance
 //      ≥ LUMA_LIGHT_THRESHOLD → light.
 //   4. `COLORFGBG` last field — XFCE / rxvt / Terminal.app emit
 //      slot 7 or 15 on light profiles; 0–15 ranges are otherwise
@@ -697,7 +697,7 @@ function backgroundLuminance(raw: string): null | number {
 //      allow-list below cannot override an explicit dark profile.
 //   5. `TERM_PROGRAM` light-default allow-list.
 //
-// Anything we can't decide stays dark — the default Hermes palette
+// Anything we can't decide stays dark — the default Atlas palette
 // is the dark one.
 export function detectLightMode(
   env: NodeJS.ProcessEnv = process.env,
@@ -705,7 +705,7 @@ export function detectLightMode(
   // precedence rule even though the production allow-list is empty.
   lightDefaultTermPrograms: ReadonlySet<string> = LIGHT_DEFAULT_TERM_PROGRAMS
 ): boolean {
-  const lightFlag = (env.HERMES_TUI_LIGHT ?? '').trim().toLowerCase()
+  const lightFlag = (env.ATLAS_TUI_LIGHT ?? '').trim().toLowerCase()
 
   if (TRUE_RE.test(lightFlag)) {
     return true
@@ -715,7 +715,7 @@ export function detectLightMode(
     return false
   }
 
-  const themeFlag = (env.HERMES_TUI_THEME ?? '').trim().toLowerCase()
+  const themeFlag = (env.ATLAS_TUI_THEME ?? '').trim().toLowerCase()
 
   if (themeFlag === 'light') {
     return true
@@ -725,7 +725,7 @@ export function detectLightMode(
     return false
   }
 
-  const bgHint = backgroundLuminance(env.HERMES_TUI_BACKGROUND ?? '')
+  const bgHint = backgroundLuminance(env.ATLAS_TUI_BACKGROUND ?? '')
 
   if (bgHint !== null) {
     return bgHint >= LUMA_LIGHT_THRESHOLD
@@ -801,7 +801,7 @@ export const DEFAULT_THEME: Theme = normalizeThemeForAnsiLightTerminal(
 /**
  * The skinless theme for the CURRENT light-mode signals. Unlike the frozen
  * module-load DEFAULT_THEME, this re-reads the environment — so it picks up
- * the OSC-11 background answer cached into HERMES_TUI_BACKGROUND after
+ * the OSC-11 background answer cached into ATLAS_TUI_BACKGROUND after
  * startup. Used when the terminal background arrives before (or without) a
  * gateway skin.
  */
@@ -846,7 +846,7 @@ export function fromSkin(
   // Polarity: the skin's own canvas when it authors one (see skinIsLight);
   // otherwise live host detection (not the module-load snapshot — by the time
   // the gateway skin arrives, the OSC-11 probe has usually answered and cached
-  // itself into HERMES_TUI_BACKGROUND. See #applySkin / syncThemeToTerminalBackground).
+  // itself into ATLAS_TUI_BACKGROUND. See #applySkin / syncThemeToTerminalBackground).
   const skinBg = authoredBackground(colors['background'])
   const isLight = skinIsLight(colors)
   const bg = skinBg ?? referenceBackground(isLight)
@@ -857,7 +857,7 @@ export function fromSkin(
   const hasSkinColors = Object.keys(colors).length > 0
 
   // 1. Seeds: the skin's identity. Anything it doesn't define comes from the
-  //    base seeds for this polarity. The base's IDENTITY FILLS (Hermes navy
+  //    base seeds for this polarity. The base's IDENTITY FILLS (Atlas navy
   //    surfaces, gold muted) only carry over for the skinless default — a
   //    skin with its own identity derives its fills from its own seeds.
   const identityFills: Partial<ThemeSeeds> = hasSkinColors
@@ -895,7 +895,7 @@ export function fromSkin(
   const surface = c('completion_menu_bg') ?? c('background') ?? derived.completionBg
 
   // Re-mix the chip only when the skin authored its own surface; otherwise
-  // the derived value already carries the identity seeds (e.g. Hermes navy).
+  // the derived value already carries the identity seeds (e.g. Atlas navy).
   const activeRow =
     c('completion_menu_current_bg') ??
     (c('completion_menu_bg') ? mix(surface, seeds.accent, 0.22) : derived.completionCurrentBg)

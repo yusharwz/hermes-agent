@@ -4,7 +4,7 @@
  * WHY THIS EXISTS
  * ===============
  * The release server collects desktop applications BY FILENAME:
- * `Hermes-*-win-x64.exe`, `Hermes-*-arm64.dmg`, and so on. A filename carries the
+ * `Atlas-*-win-x64.exe`, `Atlas-*-arm64.dmg`, and so on. A filename carries the
  * product version (0.17.0) and nothing else, so a .exe built on the 9th and an
  * agent tarball built on the 11th are indistinguishable to the collector — and
  * it labelled both with the source commit it happened to be holding. Customers
@@ -19,8 +19,8 @@
  *
  * So this hook copies that same fact to a sidecar next to each artifact:
  *
- *   Hermes-<version>-win-x64.exe
- *   Hermes-<version>-win-x64.exe.stamp.json
+ *   Atlas-<version>-win-x64.exe
+ *   Atlas-<version>-win-x64.exe.stamp.json
  *
  * Same file, same build, one open. It is deliberately a copy of the existing
  * stamp rather than a second resolution of the commit: two places that both
@@ -48,7 +48,7 @@ export const STAMP_SUFFIX = '.stamp.json'
  *
  * electron-builder also emits blockmaps, latest*.yml and unpacked directories.
  * Stamping those would be noise, and `.blockmap` in particular would produce
- * `Hermes-<version>-win-x64.exe.blockmap.stamp.json`, which reads like a second
+ * `Atlas-<version>-win-x64.exe.blockmap.stamp.json`, which reads like a second
  * Windows build.
  */
 const INSTALLABLE = /\.(exe|dmg|AppImage|deb|rpm|msi|zip)$/i

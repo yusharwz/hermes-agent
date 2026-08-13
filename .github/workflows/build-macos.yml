@@ -1,0 +1,167 @@
+name: Bangun aplikasi macOS
+
+# WHY THIS EXISTS
+# ===============
+# A .dmg cannot be cross-compiled. Electron packages an .app bundle and then
+# builds a disk image around it, and both steps use macOS-only tooling — hdiutil
+# for the image, and the codesign machinery even when nothing is signed. Linux
+# and Windows are built on the Linux box that builds everything else; macOS is
+# the one platform that has to run somewhere else, and a GitHub-hosted runner is
+# that somewhere.
+#
+# WHY IT NEVER RUNS ON PUSH
+# =========================
+# macOS runner minutes bill at TEN TIMES the Linux rate on a private repository.
+# A twenty-minute build costs two hundred minutes of quota, so a workflow that
+# fired on every push would exhaust a month's allowance in a day and produce
+# nothing anyone asked for. It runs when a release is tagged, or when somebody
+# deliberately asks for it.
+
+on:
+  workflow_dispatch:
+    inputs:
+      arch:
+        description: "Arsitektur yang dibangun"
+        type: choice
+        default: both
+        options: [both, arm64, x64]
+  push:
+    tags: ["v*"]
+
+# A second run started while the first is still going would double the bill for
+# an artefact that is about to be superseded anyway.
+concurrency:
+  group: macos-build-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # Which architectures to build, decided before any macOS runner starts.
+  #
+  # The obvious shape — one matrix and a job-level `if` comparing
+  # `matrix.arch` — does not work: `if` on a job is evaluated BEFORE the matrix
+  # expands, so the matrix context does not exist yet and the workflow fails to
+  # parse. Computing the matrix here and expanding it with fromJSON is the
+  # supported way round, and it costs one cheap Linux job rather than starting
+  # a macOS runner only to skip it.
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.pick.outputs.matrix }}
+    steps:
+      - id: pick
+        env:
+          # The tag trigger carries no inputs at all, so an absent value has to
+          # mean "everything".
+          ARCH: ${{ github.event.inputs.arch || 'both' }}
+        run: |
+          case "$ARCH" in
+            # Both architectures build on Apple Silicon.
+            #
+            # The Intel image was the last of its kind and GitHub has retired
+            # it. A job requesting that label sits queued forever with no runner
+            # ever allocated — which is exactly what happened here: over an hour
+            # with startedAt set and runner_name empty.
+            #
+            # Building an Intel bundle on an ARM host is fine, because nothing
+            # is compiled. Electron ships prebuilt binaries per architecture and
+            # electron-builder fetches the one the target needs; the packaging
+            # around it is architecture-independent.
+            arm64) matrix='[{"runner":"macos-14","arch":"arm64"}]' ;;
+            x64)   matrix='[{"runner":"macos-14","arch":"x64"}]' ;;
+            *)     matrix='[{"runner":"macos-14","arch":"arm64"},{"runner":"macos-14","arch":"x64"}]' ;;
+          esac
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: plan
+    strategy:
+      # One architecture failing should not throw away the other's twenty
+      # minutes — they are independent artefacts.
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.matrix) }}
+
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Pinned to the range the repository's engines field accepts: 22.22+
+          # for the tree, and an npm below 11.10 — which is what Node 22 ships
+          # and Node 24 does not.
+          node-version: "22.23.2"
+          cache: npm
+
+      - name: Pasang dependensi
+        # npm ci, not npm install: the lockfile is the point. An install that
+        # silently resolves a different tree would produce an application
+        # nobody tested.
+        run: npm ci --no-audit --no-fund
+
+      - name: Bangun renderer
+        working-directory: apps/desktop
+        run: npm run build
+
+      - name: Paketkan .dmg
+        working-directory: apps/desktop
+        env:
+          # Nothing is signed or notarised yet — there is no Apple Developer
+          # certificate. Left explicit rather than implicit: electron-builder
+          # otherwise looks for a keychain identity, fails to find one, and
+          # reports it as an error rather than a decision.
+          #
+          # The cost is that macOS shows "unidentified developer" on first
+          # open, and the customer has to right-click → Open once. That is
+          # documented in the install guide.
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: npm run builder -- --mac dmg --${{ matrix.arch }}
+
+      # BEFORE the summary, deliberately. An earlier version put a cosmetic
+      # summary step first, it failed, and the upload was skipped — throwing
+      # away a .dmg that had built perfectly well. Nothing decorative should
+      # ever stand between a successful build and its artefact.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: atlas-macos-${{ matrix.arch }}
+          # The .stamp.json sidecar travels WITH the .dmg, always. It records
+          # the commit this was built from, and the release collector refuses
+          # to publish an application whose provenance it cannot read — which
+          # is the whole point: a .dmg that arrives alone is indistinguishable
+          # from one built a week ago.
+          path: |
+            apps/desktop/release/*.dmg
+            apps/desktop/release/*.dmg.stamp.json
+          if-no-files-found: error
+          # Long enough to collect and publish, short enough that a year of
+          # builds does not sit in storage being billed.
+          retention-days: 14
+
+      - name: Ringkas hasil
+        # Never fatal: this writes a nicety onto the run page and has no
+        # bearing on whether the build worked.
+        continue-on-error: true
+        if: always()
+        working-directory: apps/desktop
+        shell: bash
+        run: |
+          # An unmatched glob would otherwise be passed through as a literal.
+          shopt -s nullglob
+          files=(release/*.dmg)
+
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "Tidak ada .dmg di release/." >> "$GITHUB_STEP_SUMMARY"
+            ls -la release/ >> "$GITHUB_STEP_SUMMARY" 2>&1 || true
+            exit 0
+          fi
+
+          echo "### Artefak macOS (${{ matrix.arch }})" >> "$GITHUB_STEP_SUMMARY"
+          for f in "${files[@]}"; do
+            size=$(du -h "$f" | cut -f1)
+            sum=$(shasum -a 256 "$f" | cut -d' ' -f1)
+            echo "- \`$(basename "$f")\` — ${size} — sha256 \`${sum}\`" >> "$GITHUB_STEP_SUMMARY"
+          done

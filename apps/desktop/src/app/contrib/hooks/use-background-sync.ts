@@ -174,7 +174,7 @@ interface BackgroundSyncParams {
   refreshActiveMessagingTranscript: () => Promise<unknown> | unknown
   refreshCronJobs: () => Promise<unknown> | unknown
   refreshCurrentModel: (force?: boolean) => Promise<unknown> | unknown
-  refreshHermesConfig: () => Promise<unknown> | unknown
+  refreshAtlasConfig: () => Promise<unknown> | unknown
   refreshMessagingSessions: () => Promise<unknown> | unknown
   refreshSessions: () => Promise<unknown> | unknown
   requestGateway: GatewayRequester
@@ -223,7 +223,7 @@ export function useBackgroundSync({
   refreshActiveMessagingTranscript,
   refreshCronJobs,
   refreshCurrentModel,
-  refreshHermesConfig,
+  refreshAtlasConfig,
   refreshMessagingSessions,
   refreshSessions,
   requestGateway
@@ -401,7 +401,7 @@ export function useBackgroundSync({
   useEffect(() => {
     if (gatewayState === 'open' && !activeSessionId && freshDraftReady) {
       void refreshCurrentModel()
-      void refreshHermesConfig()
+      void refreshAtlasConfig()
     }
-  }, [activeSessionId, freshDraftReady, gatewayState, refreshCurrentModel, refreshHermesConfig])
+  }, [activeSessionId, freshDraftReady, gatewayState, refreshCurrentModel, refreshAtlasConfig])
 }

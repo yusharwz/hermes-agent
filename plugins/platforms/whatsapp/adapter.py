@@ -27,13 +27,13 @@ _IS_WINDOWS = platform.system() == "Windows"
 from pathlib import Path
 from typing import Dict, Optional, Any
 
-from hermes_cli._subprocess_compat import windows_detach_popen_kwargs
-from hermes_constants import (
+from atlas_cli._subprocess_compat import windows_detach_popen_kwargs
+from atlas_constants import (
     WHATSAPP_BRIDGE_PORT_DEFAULT,
     WHATSAPP_LOGGED_OUT_MARKER,
     find_node_executable,
     get_whatsapp_session_dir,
-    with_hermes_node_path,
+    with_atlas_node_path,
 )
 
 logger = logging.getLogger(__name__)
@@ -89,7 +89,7 @@ def _process_is_our_bridge(pid: int, session_path: Path) -> bool:
     """True only if ``pid`` is a node bridge serving *this* session.
 
     A port number identifies nothing. The bridge for another WhatsApp account,
-    another profile's install, upstream Hermes on its own default port, or an
+    another profile's install, upstream Atlas on its own default port, or an
     unrelated web server all look identical from outside — and every one of
     them has at some point been the thing listening where a bridge was about to
     start. Signalling by port alone made "start my bridge" mean "stop yours".
@@ -114,12 +114,12 @@ def _kill_port_process(port: int, session_path: Path) -> None:
     """Kill our own stale bridge if it is the thing holding ``port``.
 
     Deliberately narrow. An earlier version signalled whatever was listening,
-    which is how starting Atlas could stop a Hermes bridge — or any dev server
+    which is how starting Atlas could stop a Atlas bridge — or any dev server
     on the same port — and take its WhatsApp session down with it.
     """
     try:
         if _IS_WINDOWS:
-            from hermes_cli._subprocess_compat import windows_hide_flags
+            from atlas_cli._subprocess_compat import windows_hide_flags
 
             # Use netstat to find the PID bound to this port, then taskkill
             result = subprocess.run(
@@ -334,7 +334,7 @@ from utils import env_int
 
 def _is_allowed_bridge_path(url: str) -> bool:
     """Return True only when an absolute path from the bridge resolves inside a
-    known Hermes media cache directory.
+    known Atlas media cache directory.
 
     The Baileys bridge is a local subprocess that downloads inbound media and
     hands back absolute file paths. A compromised or buggy bridge could hand
@@ -342,7 +342,7 @@ def _is_allowed_bridge_path(url: str) -> bool:
     attached verbatim and sent to the model. Resolve the path (following any
     symlinks) and require it to live under one of the real cache roots — this
     covers both the canonical ``cache/<kind>`` layout and the legacy
-    ``<kind>_cache`` layout that ``get_hermes_dir`` may return.
+    ``<kind>_cache`` layout that ``get_atlas_dir`` may return.
     """
     try:
         resolved = Path(url).resolve()
@@ -395,7 +395,7 @@ def check_whatsapp_requirements() -> bool:
     
     WhatsApp requires a Node.js bridge for most implementations.
     """
-    # Prefer Hermes-managed Node/npm so Windows installs are not broken by a
+    # Prefer Atlas-managed Node/npm so Windows installs are not broken by a
     # bad or elevation-triggering system Node on PATH.
     _node = find_node_executable("node")
     if not _node:
@@ -542,7 +542,7 @@ class WhatsAppAdapter(WhatsAppBehaviorMixin, BasePlatformAdapter):
             logger.warning("[%s] Node.js not found. WhatsApp requires Node.js.", self.name)
             self._set_fatal_error(
                 "whatsapp_node_missing",
-                "Node.js is not installed — install Node.js and re-run `hermes gateway`.",
+                "Node.js is not installed — install Node.js and re-run `atlas gateway`.",
                 retryable=False,
             )
             return False
@@ -568,13 +568,13 @@ class WhatsAppAdapter(WhatsAppBehaviorMixin, BasePlatformAdapter):
         if not creds_path.exists():
             logger.warning(
                 "[%s] WhatsApp is enabled but not paired (no creds.json at %s). "
-                "Pair from the dashboard or run `hermes whatsapp`; remove "
+                "Pair from the dashboard or run `atlas whatsapp`; remove "
                 "WHATSAPP_ENABLED from your .env to disable.",
                 self.name, creds_path,
             )
             self._set_fatal_error(
                 "whatsapp_not_paired",
-                "WhatsApp enabled but not paired — pair from the dashboard or run `hermes whatsapp`.",
+                "WhatsApp enabled but not paired — pair from the dashboard or run `atlas whatsapp`.",
                 # Retryable, because "not paired" is a state the customer is in
                 # the middle of leaving. Marked final, this check ran once at
                 # gateway start, latched, and never looked again: pairing then
@@ -604,11 +604,11 @@ class WhatsAppAdapter(WhatsAppBehaviorMixin, BasePlatformAdapter):
         try:
             # Auto-install npm dependencies when node_modules is missing OR
             # package.json changed since the last install (e.g. after
-            # `hermes update` bumps the Baileys pin).  The stamp file records
+            # `atlas update` bumps the Baileys pin).  The stamp file records
             # the package.json hash of the last successful install.
             bridge_dir = bridge_path.parent
             _pkg_json = bridge_dir / "package.json"
-            _dep_stamp = bridge_dir / "node_modules" / ".hermes-pkg-hash"
+            _dep_stamp = bridge_dir / "node_modules" / ".atlas-pkg-hash"
             _pkg_hash = _file_content_hash(_pkg_json)
             _deps_fresh = False
             if (bridge_dir / "node_modules").exists():
@@ -621,7 +621,7 @@ class WhatsAppAdapter(WhatsAppBehaviorMixin, BasePlatformAdapter):
             if not _deps_fresh:
                 print(f"[{self.name}] Installing WhatsApp bridge dependencies...")
                 # Resolve npm path so Windows uses npm.cmd from the
-                # Hermes-managed portable Node before falling back to PATH.
+                # Atlas-managed portable Node before falling back to PATH.
                 _npm_bin = find_node_executable("npm") or "npm"
                 try:
                     # Read timeout from environment variable, default to 300 seconds (5 minutes)
@@ -633,7 +633,7 @@ class WhatsAppAdapter(WhatsAppBehaviorMixin, BasePlatformAdapter):
                         capture_output=True,
                         text=True, encoding='utf-8', errors='replace',
                         timeout=npm_install_timeout,
-                        env=with_hermes_node_path(),
+                        env=with_atlas_node_path(),
                     )
                     if install_result.returncode != 0:
                         print(f"[{self.name}] npm install failed: {install_result.stderr}")
@@ -666,7 +666,7 @@ class WhatsAppAdapter(WhatsAppBehaviorMixin, BasePlatformAdapter):
                             #
                             # Answering on our port is not proof it is ours.
                             # Another install, another profile, or upstream
-                            # Hermes on a colliding default would all answer
+                            # Atlas on a colliding default would all answer
                             # here — and adopting one means this gateway starts
                             # driving somebody else's WhatsApp account: reading
                             # their messages, replying as them. The scoped lock
@@ -695,7 +695,7 @@ class WhatsAppAdapter(WhatsAppBehaviorMixin, BasePlatformAdapter):
                                 # bridge if it is serving the same bridge.js
                                 # that is on disk right now.  A long-lived
                                 # bridge survives gateway restarts AND
-                                # `hermes update`, so without this check it
+                                # `atlas update`, so without this check it
                                 # keeps serving pre-update code forever
                                 # (e.g. no inbound media download).  Old
                                 # bridges that don't report scriptHash are
@@ -748,8 +748,8 @@ class WhatsAppAdapter(WhatsAppBehaviorMixin, BasePlatformAdapter):
             # Build bridge subprocess environment.
             # Pass WHATSAPP_REPLY_PREFIX from config.yaml so the Node bridge
             # can use it without the user needing to set a separate env var.
-            # with_hermes_node_path() copies os.environ when called with no arg.
-            bridge_env = with_hermes_node_path()
+            # with_atlas_node_path() copies os.environ when called with no arg.
+            bridge_env = with_atlas_node_path()
             if self._reply_prefix is not None:
                 bridge_env["WHATSAPP_REPLY_PREFIX"] = self._reply_prefix
             bridge_env["WHATSAPP_SEND_READ_RECEIPTS"] = (
@@ -757,16 +757,16 @@ class WhatsAppAdapter(WhatsAppBehaviorMixin, BasePlatformAdapter):
             )
             # Pass the profile-aware cache directories so the bridge writes
             # media where the Python side reads it.  Without these the bridge
-            # hardcodes ~/.hermes/{image,audio,document}_cache, which diverges
-            # under HERMES_HOME overrides, profiles, and the new cache/ layout.
+            # hardcodes ~/.atlas/{image,audio,document}_cache, which diverges
+            # under ATLAS_HOME overrides, profiles, and the new cache/ layout.
             from gateway.platforms.base import (
                 get_audio_cache_dir as _get_audio_dir,
                 get_document_cache_dir as _get_doc_dir,
                 get_image_cache_dir as _get_img_dir,
             )
-            bridge_env["HERMES_IMAGE_CACHE_DIR"] = str(_get_img_dir())
-            bridge_env["HERMES_AUDIO_CACHE_DIR"] = str(_get_audio_dir())
-            bridge_env["HERMES_DOCUMENT_CACHE_DIR"] = str(_get_doc_dir())
+            bridge_env["ATLAS_IMAGE_CACHE_DIR"] = str(_get_img_dir())
+            bridge_env["ATLAS_AUDIO_CACHE_DIR"] = str(_get_audio_dir())
+            bridge_env["ATLAS_DOCUMENT_CACHE_DIR"] = str(_get_doc_dir())
 
             self._bridge_process = subprocess.Popen(
                 [
@@ -809,7 +809,7 @@ class WhatsAppAdapter(WhatsAppBehaviorMixin, BasePlatformAdapter):
                         # Clearing it here makes the reported state the honest
                         # one — not paired — which is something the operator can
                         # act on, rather than a corpse they must identify first.
-                        from hermes_constants import clear_whatsapp_session
+                        from atlas_constants import clear_whatsapp_session
 
                         clear_whatsapp_session(self._session_path)
                         logger.warning(
@@ -817,14 +817,14 @@ class WhatsAppAdapter(WhatsAppBehaviorMixin, BasePlatformAdapter):
                             "from the phone, which is what WhatsApp does to every "
                             "device when it restricts a number. The dead session "
                             "has been cleared; pair again from the dashboard or "
-                            "run `hermes whatsapp`.",
+                            "run `atlas whatsapp`.",
                             self.name,
                         )
                         self._set_fatal_error(
                             "whatsapp_not_paired",
                             "WhatsApp was unlinked from your phone and the stale "
                             "session has been cleared — pair again from the "
-                            "dashboard or run `hermes whatsapp`.",
+                            "dashboard or run `atlas whatsapp`.",
                             retryable=False,
                         )
                         self._close_bridge_log()
@@ -883,7 +883,7 @@ class WhatsAppAdapter(WhatsAppBehaviorMixin, BasePlatformAdapter):
                     # auto-reconnect later, e.g. after a code 515 restart).
                     print(f"[{self.name}] ⚠ WhatsApp not connected after 30s")
                     print(f"[{self.name}]   Bridge log: {self._bridge_log}")
-                    print(f"[{self.name}]   If session expired, re-pair: hermes whatsapp")
+                    print(f"[{self.name}]   If session expired, re-pair: atlas whatsapp")
             
             # Create a persistent HTTP session for all bridge communication
             self._http_session = aiohttp.ClientSession()
@@ -1734,7 +1734,7 @@ class WhatsAppAdapter(WhatsAppBehaviorMixin, BasePlatformAdapter):
 # per-platform core touchpoints (the Platform.WHATSAPP elif in gateway/run.py,
 # the whatsapp_cfg YAML→env block + _PLATFORM_CONNECTED_CHECKERS entry in
 # gateway/config.py, the _setup_whatsapp wizard + _PLATFORMS["whatsapp"] static
-# dict in hermes_cli/gateway.py, and the _send_whatsapp dispatch in
+# dict in atlas_cli/gateway.py, and the _send_whatsapp dispatch in
 # tools/send_message_tool.py).  WhatsApp auth is handled by the Node.js bridge,
 # so is_connected is always True (matches the legacy checker).
 # ──────────────────────────────────────────────────────────────────────────
@@ -1871,12 +1871,12 @@ async def _standalone_send(
 def interactive_setup() -> None:
     """Guide the user through WhatsApp setup.
 
-    Replaces the central _setup_whatsapp in hermes_cli/gateway.py and the
+    Replaces the central _setup_whatsapp in atlas_cli/gateway.py and the
     static _PLATFORMS["whatsapp"] dict. CLI helpers are lazy-imported so the
     plugin's module-load surface stays minimal.
     """
-    from hermes_cli.config import get_env_value, remove_env_value, save_env_value
-    from hermes_cli.cli_output import (
+    from atlas_cli.config import get_env_value, remove_env_value, save_env_value
+    from atlas_cli.cli_output import (
         prompt,
         prompt_yes_no,
         print_header,
@@ -1958,7 +1958,7 @@ def _is_connected(config) -> bool:
     bridge token here — so the opt-in flag is the connection signal. The legacy
     built-in path keyed off ``WHATSAPP_ENABLED`` in both the connected-platforms
     check and the setup-status display; returning an unconditional True here
-    would make WhatsApp always show as "configured" in ``hermes setup`` even
+    would make WhatsApp always show as "configured" in ``atlas setup`` even
     when the user never enabled it. #41112.
     """
     extra = getattr(config, "extra", {}) or {}
@@ -1966,10 +1966,10 @@ def _is_connected(config) -> bool:
         # An explicitly-enabled PlatformConfig with seeded extras (e.g. from
         # YAML) counts as configured.
         return True
-    # Read via hermes_cli.gateway.get_env_value (not os.getenv) so setup-status
+    # Read via atlas_cli.gateway.get_env_value (not os.getenv) so setup-status
     # callers that patch get_env_value — and the gateway connected-platforms
     # check — observe the same value. Matches the discord/slack plugin pattern.
-    import hermes_cli.gateway as gateway_mod
+    import atlas_cli.gateway as gateway_mod
     val = (gateway_mod.get_env_value("WHATSAPP_ENABLED") or "").strip().lower()
     return val in {"true", "1", "yes"}
 
@@ -1980,7 +1980,7 @@ def _build_adapter(config):
 
 
 def register(ctx) -> None:
-    """Plugin entry point — called by the Hermes plugin system."""
+    """Plugin entry point — called by the Atlas plugin system."""
     ctx.register_platform(
         name="whatsapp",
         label="WhatsApp",

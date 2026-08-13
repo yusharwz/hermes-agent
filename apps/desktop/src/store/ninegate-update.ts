@@ -14,7 +14,7 @@
  * closing. What belongs here is a single poller that asks, and atoms every
  * surface can read without owning the polling.
  *
- * @see hermes_cli/ninegate_update.py — where the state actually lives
+ * @see atlas_cli/ninegate_update.py — where the state actually lives
  */
 
 import { atom } from 'nanostores'
@@ -124,7 +124,7 @@ export async function refreshUpdateInfo(): Promise<void> {
   $updateChecking.set(true)
 
   try {
-    const payload = await window.hermesDesktop.api<InfoPayload>({ path: '/api/ninegate/update' })
+    const payload = await window.atlasDesktop.api<InfoPayload>({ path: '/api/ninegate/update' })
 
     $updateInfo.set({
       builtAt: payload.built_at ?? null,
@@ -145,7 +145,7 @@ export async function refreshUpdateInfo(): Promise<void> {
 }
 
 async function fetchProgress(): Promise<UpdateProgress> {
-  return toProgress(await window.hermesDesktop.api<ProgressPayload>({ path: '/api/ninegate/update/progress' }))
+  return toProgress(await window.atlasDesktop.api<ProgressPayload>({ path: '/api/ninegate/update/progress' }))
 }
 
 /**
@@ -178,7 +178,7 @@ export async function startNineGateUpdate(): Promise<void> {
   $updateStarting.set(true)
 
   try {
-    await window.hermesDesktop.api({ method: 'POST', path: '/api/ninegate/update' })
+    await window.atlasDesktop.api({ method: 'POST', path: '/api/ninegate/update' })
     apply(await fetchProgress())
   } catch (error) {
     // Includes the 409 from a second press. Rare now that the button knows an
