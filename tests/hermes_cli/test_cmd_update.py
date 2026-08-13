@@ -206,13 +206,17 @@ class TestCmdUpdateBranchFallback:
 
     @patch("shutil.which", return_value=None)
     @patch("subprocess.run")
-    def test_update_on_fork_checks_upstream_when_origin_up_to_date(
+    def test_update_never_syncs_from_upstream(
         self, mock_run, _mock_which, mock_args, capsys
     ):
-        """Regression for issue #26172: forks whose local HEAD already matches
-        origin/main must still consult upstream/main before printing
-        "Already up to date!" — otherwise a fork that's caught up to its own
-        origin but behind NousResearch/hermes-agent silently misses updates.
+        """An update must never merge upstream into the working tree.
+
+        Inverts upstream's #26172 behaviour deliberately. Upstream consulted
+        upstream/main whenever a fork was level with its own origin, and
+        offered to ADD the upstream remote when it was missing — which would
+        quietly restore a severed upstream. In this fork an upstream merge is
+        a reviewed, by-hand operation (NINEGATE-MERGE.md), never a side effect
+        of running an update.
         """
         from hermes_cli import main as hm
 
@@ -227,10 +231,7 @@ class TestCmdUpdateBranchFallback:
         ), patch.object(hm, "_sync_with_upstream_if_needed") as sync_mock:
             cmd_update(mock_args)
 
-        expected_git_cmd = (
-            ["git", "-c", "windows.appendAtomically=false"] if hm._is_windows() else ["git"]
-        )
-        sync_mock.assert_called_once_with(expected_git_cmd, PROJECT_ROOT)
+        sync_mock.assert_not_called()
         captured = capsys.readouterr()
         assert "Already up to date!" in captured.out
 
@@ -484,8 +485,15 @@ class TestCmdUpdateBranchFlag:
 
     @patch("shutil.which", return_value=None)
     @patch("subprocess.run")
-    def test_branch_flag_fails_when_branch_missing_everywhere(self, mock_run, _mock_which, capsys):
-        """If branch doesn't exist locally OR on origin, exit non-zero with clear error."""
+    def test_update_refuses_instead_of_moving_head(self, mock_run, _mock_which, capsys):
+        """Asking to update a branch that is not checked out must refuse, not switch.
+
+        The branch-flipper this replaces checked out the target — defaulting to
+        "main" — and repointed the release tree at upstream five separate
+        times, once mid-way through a pre-release test run. Refusing is the
+        whole fix: the exit is non-zero, the message names both branches, and
+        no checkout is attempted.
+        """
         mock_run.side_effect = self._branch_side_effect(
             current_branch="main",
             target_branch="nonexistent",
@@ -500,8 +508,15 @@ class TestCmdUpdateBranchFlag:
         assert exc_info.value.code == 1
 
         out = capsys.readouterr().out
-        assert "does not exist locally or on origin" in out
+        assert "Refusing to update" in out
         assert "nonexistent" in out
+        assert "main" in out
+
+        # The point of the change: HEAD is never moved.
+        commands = [" ".join(str(a) for a in c.args[0]) for c in mock_run.call_args_list]
+        checkouts = [c for c in commands if "checkout" in c]
+        assert not any("nonexistent" in c for c in checkouts), checkouts
+        assert not any(" -B " in c for c in checkouts), checkouts
 
 
 class TestCmdUpdateCheckBranchFlag:

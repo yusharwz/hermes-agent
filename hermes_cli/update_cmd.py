@@ -3746,54 +3746,31 @@ def _cmd_update_impl(args, gateway_mode: bool):
         )
         current_branch = result.stdout.strip()
 
-        # If user is on a different branch than the update target, switch
-        # to the target. When the target is "main" this is the historical
-        # "always update against main" behavior; for any other target it's
-        # the same thing — get HEAD onto the requested branch first, then
-        # fast-forward.
+        # An update never moves HEAD.
+        #
+        # Upstream checked out the update target here — ``branch`` defaults to
+        # "main" — so that an update always ran "against main". In this fork
+        # that silently repointed the working tree at upstream: five recorded
+        # incidents, the last one landing mid-way through a pre-release test
+        # run, which then spent an hour testing ``origin/main`` and reported
+        # 1083 failures belonging to code we do not ship. Had it landed forty
+        # minutes later it would have hit rebrand-and-build, and produced a
+        # signed artifact built from upstream with none of the leash in it.
+        #
+        # Which branch is checked out is the operator's decision, never the
+        # updater's. If HEAD is not already on the update target, refuse.
         if current_branch != branch:
             label = (
                 "detached HEAD"
                 if current_branch == "HEAD"
                 else f"branch '{current_branch}'"
             )
-            print(f"  ⚠ Currently on {label} — switching to {branch} for update...")
-            # Stash before checkout so uncommitted work isn't lost
-            auto_stash_ref = _m()._stash_local_changes_if_needed(git_cmd, _m().PROJECT_ROOT)
-            checkout_result = subprocess.run(
-                git_cmd + ["checkout", branch],
-                cwd=_m().PROJECT_ROOT,
-                capture_output=True,
-                text=True, encoding="utf-8", errors="replace",
-            )
-            if checkout_result.returncode != 0:
-                # Local checkout doesn't have this branch yet. Try to set
-                # it up as a tracking branch of origin/<branch>. This is
-                # the common case when the requested branch exists upstream
-                # but was never checked out locally.
-                track_result = subprocess.run(
-                    git_cmd + ["checkout", "-B", branch, f"origin/{branch}"],
-                    cwd=_m().PROJECT_ROOT,
-                    capture_output=True,
-                    text=True, encoding="utf-8", errors="replace",
-                )
-                if track_result.returncode != 0:
-                    # Restore the user's prior branch + stash before bailing
-                    # so we don't leave them stranded in a weird state.
-                    if auto_stash_ref is not None:
-                        _m()._restore_stashed_changes(
-                            git_cmd,
-                            _m().PROJECT_ROOT,
-                            auto_stash_ref,
-                            prompt_user=False,
-                            input_fn=gw_input_fn,
-                        )
-                    print(f"✗ Branch '{branch}' does not exist locally or on origin.")
-                    if track_result.stderr.strip():
-                        print(f"  {track_result.stderr.strip().splitlines()[0]}")
-                    sys.exit(1)
-        else:
-            auto_stash_ref = _m()._stash_local_changes_if_needed(git_cmd, _m().PROJECT_ROOT)
+            print(f"✗ Refusing to update: HEAD is on {label}, update target is '{branch}'.")
+            print("  This build never checks out a branch for you. Switch to the")
+            print(f"  target yourself first if updating '{branch}' is what you meant.")
+            sys.exit(1)
+
+        auto_stash_ref = _m()._stash_local_changes_if_needed(git_cmd, _m().PROJECT_ROOT)
 
         prompt_for_restore = (
             auto_stash_ref is not None
@@ -3814,11 +3791,14 @@ def _cmd_update_impl(args, gateway_mode: bool):
         if commit_count == 0:
             _invalidate_update_cache()
 
-            # Even if origin is up to date, the fork may be behind upstream
-            if is_fork and branch == "main":
-                _m()._sync_with_upstream_if_needed(git_cmd, _m().PROJECT_ROOT)
+            # No _sync_with_upstream_if_needed here. That merged
+            # ``upstream/main`` into the working tree, and offered to ADD the
+            # upstream remote when it was missing — it would undo a severed
+            # upstream on its own. Upstream merges are a deliberate, reviewed
+            # act performed by hand; see NINEGATE-MERGE.md.
 
-            # Restore stash and switch back to original branch if we moved
+            # Restore stash. HEAD cannot have moved above, so there is no
+            # branch to switch back to.
             if auto_stash_ref is not None:
                 _m()._restore_stashed_changes(
                     git_cmd,
@@ -3826,14 +3806,6 @@ def _cmd_update_impl(args, gateway_mode: bool):
                     auto_stash_ref,
                     prompt_user=prompt_for_restore,
                     input_fn=gw_input_fn,
-                )
-            if current_branch not in {branch, "HEAD"}:
-                subprocess.run(
-                    git_cmd + ["checkout", current_branch],
-                    cwd=_m().PROJECT_ROOT,
-                    capture_output=True,
-                    text=True, encoding="utf-8", errors="replace",
-                    check=False,
                 )
 
             # "No new commits" does not mean the managed interpreter is safe.
@@ -4038,9 +4010,9 @@ def _cmd_update_impl(args, gateway_mode: bool):
             )
         _m()._record_bytecode_fingerprint()
 
-        # Fork upstream sync logic (only for main branch on forks)
-        if is_fork and branch == "main":
-            _m()._sync_with_upstream_if_needed(git_cmd, _m().PROJECT_ROOT)
+        # No fork upstream sync. See the note on the other removed call site:
+        # pulling upstream/main mid-update is how upstream code arrives in a
+        # release tree without anyone deciding that it should.
 
         # Reinstall Python dependencies. Prefer .[all], but if one optional extra
         # breaks on this machine, keep base deps and reinstall the remaining extras
