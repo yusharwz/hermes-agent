@@ -460,6 +460,22 @@ def looks_like_gateway_runtime_command_line(command: str | None) -> bool:
     return _gateway_command_subcommand(command) in {"run", "restart"}
 
 
+def looks_like_update_runner_command_line(command: str | None) -> bool:
+    """Return True for the detached NineGate update runner.
+
+    The runner is not a gateway — its argv is ``python -m
+    hermes_cli.ninegate_update --apply`` — but it is a Hermes-owned process
+    that holds a scoped lock for as long as it is swapping the install tree,
+    which is the longest and least interruptible operation the product
+    performs. Without this, the staleness oracle below reads "not a gateway"
+    as "not a real holder" and hands the lock to a second updater while the
+    first is mid-swap.
+    """
+    if not command:
+        return False
+    return "hermes_cli.ninegate_update" in command
+
+
 def _looks_like_gateway_process(pid: int) -> bool:
     """Return True when the live PID is a gateway runtime holding a lock.
 
@@ -485,7 +501,12 @@ def _looks_like_gateway_process(pid: int) -> bool:
     cmdline = _read_process_cmdline(pid)
     if not cmdline:
         return False
-    return looks_like_gateway_runtime_command_line(cmdline)
+    # The update runner is admitted for the same reason `gateway restart` is:
+    # both callers are asking "may this lock be taken from its holder?", and
+    # the answer for a live updater mid-tree-swap is no.
+    return looks_like_gateway_runtime_command_line(
+        cmdline
+    ) or looks_like_update_runner_command_line(cmdline)
 
 
 def _record_looks_like_gateway(record: dict[str, Any]) -> bool:

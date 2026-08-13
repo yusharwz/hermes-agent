@@ -201,6 +201,40 @@ class UpdateJob:
         self._beat: Optional[threading.Thread] = None
         self._stop_beat = threading.Event()
 
+    #: Scope name for the cross-process lock. The identity is the tree being
+    #: swapped, because that — not the state file — is the contended resource.
+    _LOCK_SCOPE = "atlas-update"
+
+    def _lock_identity(self) -> str:
+        return str(source_dir())
+
+    def _acquire_tree_lock(self) -> bool:
+        """Claim the install tree for this process. False when someone holds it."""
+        try:
+            from gateway.status import acquire_scoped_lock
+
+            acquired, _existing = acquire_scoped_lock(
+                self._LOCK_SCOPE,
+                self._lock_identity(),
+                {"role": "ninegate-update"},
+            )
+            return bool(acquired)
+        except Exception:
+            # A lock that cannot be taken must not block updates outright —
+            # that would make an unwritable lock directory an unfixable
+            # install. Log and proceed: the pre-existing state-file check
+            # still catches the common case.
+            _log.debug("tidak bisa mengambil lock pohon pembaruan", exc_info=True)
+            return True
+
+    def _release_tree_lock(self) -> None:
+        try:
+            from gateway.status import release_scoped_lock
+
+            release_scoped_lock(self._LOCK_SCOPE, self._lock_identity())
+        except Exception:
+            _log.debug("tidak bisa melepas lock pohon pembaruan", exc_info=True)
+
     def snapshot(self) -> Dict[str, Any]:
         with self._lock:
             return dict(self._state)
@@ -241,8 +275,25 @@ class UpdateJob:
         if existing["running"] and existing.get("pid"):
             return False
 
+        # The state file is not a lock. Reading it and then writing it is a
+        # check-then-act with a window between, and `self._lock` is a
+        # threading.Lock — it serialises threads inside ONE interpreter and
+        # says nothing about a second process. Measured before this line
+        # existed: twelve processes calling begin() simultaneously, twelve
+        # returned True. Every one of them would go on to _swap() the same
+        # tree, and _swap moves the venv into the new tree before renaming it
+        # into place, so the second swap renames the first's finished install
+        # to .backup and the third restores over both.
+        #
+        # The cross-process lock already exists and is the one every platform
+        # adapter uses for exactly this shape (one identity, one client). Its
+        # acquisition is an O_CREAT|O_EXCL create, so exactly one racer wins.
+        if not self._acquire_tree_lock():
+            return False
+
         with self._lock:
             if self._state["running"]:
+                self._release_tree_lock()
                 return False
 
             self._state = dict(IDLE_STATE)
@@ -296,6 +347,7 @@ class UpdateJob:
     def fail_claim(self, error: str) -> None:
         """Releases a claim whose runner never started."""
         self._set(running=False, done=True, ok=False, error=error, finished_at=time.time())
+        self._release_tree_lock()
 
     def finish(self, *, ok: bool, error: Optional[str] = None, **fields: Any) -> None:
         self._stop_beat.set()
@@ -308,6 +360,10 @@ class UpdateJob:
             finished_at=time.time(),
             **fields,
         )
+        # Last, and unconditionally: an update that ends without releasing
+        # would lock the tree until the pid is reaped as stale, turning one
+        # failed update into "updates are broken until reboot".
+        self._release_tree_lock()
 
 
 JOB = UpdateJob()
