@@ -26,6 +26,7 @@ except ImportError:
     AIOHTTP_AVAILABLE = False
 
 from hermes_cli.proxy.adapters.base import UpstreamAdapter, UpstreamCredential
+from hermes_constants import DEFAULT_PROXY_PORT
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +49,7 @@ _HOP_BY_HOP_HEADERS = frozenset(
     }
 )
 
-DEFAULT_PORT = 8645
+DEFAULT_PORT = DEFAULT_PROXY_PORT
 DEFAULT_HOST = "127.0.0.1"
 # Body cap for forwarded requests. Chat-completion payloads with long agent
 # conversations can be large; mirror api_server's MAX_REQUEST_BYTES (10 MB).

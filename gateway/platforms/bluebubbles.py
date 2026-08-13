@@ -33,6 +33,7 @@ from gateway.platforms.base import (
 )
 from .media_cache import ext_for_mime
 from gateway.platforms.helpers import compile_mention_patterns, strip_markdown
+from hermes_constants import DEFAULT_BLUEBUBBLES_WEBHOOK_PORT
 
 # Historical BlueBubbles mime→ext maps, preserved verbatim as overrides for
 # the shared dispatch in gateway.platforms.media_cache. Both maps are
@@ -67,7 +68,7 @@ DEFAULT_WEBHOOK_HOST = "127.0.0.1"
 # through the REST API, not the webhook. 1 MiB is generous headroom while
 # keeping oversized/chunked bodies from being buffered unbounded.
 _WEBHOOK_MAX_BODY_BYTES = 1_048_576
-DEFAULT_WEBHOOK_PORT = 8645
+DEFAULT_WEBHOOK_PORT = DEFAULT_BLUEBUBBLES_WEBHOOK_PORT
 DEFAULT_WEBHOOK_PATH = "/bluebubbles-webhook"
 MAX_TEXT_LENGTH = 4000
 

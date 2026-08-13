@@ -48,6 +48,7 @@ except ImportError:
 from gateway.config import Platform, PlatformConfig
 from gateway.platforms.base import BasePlatformAdapter, MessageEvent, MessageType, SendResult
 from plugins.platforms.wecom.wecom_crypto import WXBizMsgCrypt, WeComCryptoError
+from hermes_constants import DEFAULT_WECOM_CALLBACK_PORT
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +58,7 @@ logger = logging.getLogger(__name__)
 # bug as the LINE adapter (NS-603) and gateway/platforms/webhook.py
 # (d542894ad). Pin a host via WECOM_CALLBACK_HOST or extra.host.
 DEFAULT_HOST = None
-DEFAULT_PORT = 8645
+DEFAULT_PORT = DEFAULT_WECOM_CALLBACK_PORT
 DEFAULT_PATH = "/wecom/callback"
 # Cap pre-auth request bodies. WeCom callbacks are small encrypted XML
 # envelopes (media is delivered out-of-band via MediaId, never inline), so

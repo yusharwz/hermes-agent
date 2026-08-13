@@ -327,6 +327,73 @@ WHATSAPP_BRIDGE_PORT_DEFAULT = 3100
 WHATSAPP_LOGGED_OUT_MARKER = "logged-out.json"
 
 
+# ---------------------------------------------------------------------------
+# Default listening ports
+# ---------------------------------------------------------------------------
+#
+# Every default port the product binds, in one place, because they were not:
+# three separate subsystems defaulted to 8645, two to 8646, and two to 8765.
+# A duplicate is invisible at each callsite — each file names one port once and
+# looks obviously fine — and only shows up as "address already in use" on the
+# machine of whoever enabled both, or worse, does not show up at all:
+#
+#   Feishu's webhook and Honcho's OAuth loopback both defaulted to 8765, and
+#   Honcho's is a *redirect URI* (http://127.0.0.1:8765/callback) registered
+#   with the provider. With Feishu holding the socket, the browser delivers an
+#   OAuth authorization code to the Feishu webhook handler. Nothing errors.
+#
+# So this is a registry rather than a comment: the values live here, the
+# callsites import them, and test_default_port_registry.py fails if two of
+# them are ever equal again. Adding a platform means adding a line here, which
+# is the point — the collision becomes a merge conflict instead of a bug.
+#
+# All of these remain overridable per install (config `port`/`webhook_port`,
+# or the platform's env var). This is only what applies when nobody said
+# otherwise.
+#
+# Reassigned 13 Aug 2026 to break the collisions above, keeping whichever
+# claimant is registered with an outside party on the original number:
+#   bluebubbles 8645 -> 8647   (proxy keeps 8645: `hermes proxy` is documented)
+#   wecom       8645 -> 8648
+#   line        8646 -> 8649   (msgraph keeps 8646)
+#   feishu      8765 -> 8650   (honcho keeps 8765: registered redirect URI)
+DEFAULT_API_SERVER_PORT = 8642
+DEFAULT_WEBHOOK_PORT = 8644
+DEFAULT_PROXY_PORT = 8645
+DEFAULT_MSGRAPH_WEBHOOK_PORT = 8646
+DEFAULT_BLUEBUBBLES_WEBHOOK_PORT = 8647
+DEFAULT_WECOM_CALLBACK_PORT = 8648
+DEFAULT_LINE_WEBHOOK_PORT = 8649
+DEFAULT_FEISHU_WEBHOOK_PORT = 8650
+DEFAULT_HONCHO_OAUTH_LOOPBACK_PORT = 8765
+DEFAULT_WHATSAPP_CLOUD_WEBHOOK_PORT = 8090
+DEFAULT_SMS_WEBHOOK_PORT = 8080
+DEFAULT_TEAMS_PORT = 3978
+DEFAULT_PHOTON_SIDECAR_PORT = 8789
+DEFAULT_DASHBOARD_PORT = 9119
+
+#: Every default port above, keyed by the thing that binds it. The test reads
+#: this rather than the module namespace so that adding a constant without
+#: registering it here is itself the failure.
+DEFAULT_PORTS: dict[str, int] = {
+    "api_server": DEFAULT_API_SERVER_PORT,
+    "webhook": DEFAULT_WEBHOOK_PORT,
+    "proxy": DEFAULT_PROXY_PORT,
+    "msgraph_webhook": DEFAULT_MSGRAPH_WEBHOOK_PORT,
+    "bluebubbles_webhook": DEFAULT_BLUEBUBBLES_WEBHOOK_PORT,
+    "wecom_callback": DEFAULT_WECOM_CALLBACK_PORT,
+    "line_webhook": DEFAULT_LINE_WEBHOOK_PORT,
+    "feishu_webhook": DEFAULT_FEISHU_WEBHOOK_PORT,
+    "honcho_oauth_loopback": DEFAULT_HONCHO_OAUTH_LOOPBACK_PORT,
+    "whatsapp_cloud_webhook": DEFAULT_WHATSAPP_CLOUD_WEBHOOK_PORT,
+    "sms_webhook": DEFAULT_SMS_WEBHOOK_PORT,
+    "teams": DEFAULT_TEAMS_PORT,
+    "photon_sidecar": DEFAULT_PHOTON_SIDECAR_PORT,
+    "dashboard": DEFAULT_DASHBOARD_PORT,
+    "whatsapp_bridge": WHATSAPP_BRIDGE_PORT_DEFAULT,
+}
+
+
 def whatsapp_session_is_linked(
     session_dir: Path | None = None,
     *,

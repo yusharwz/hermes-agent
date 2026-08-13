@@ -20,6 +20,7 @@ except ImportError:
     web = None  # type: ignore[assignment]
 
 from gateway.config import Platform, PlatformConfig
+from hermes_constants import DEFAULT_MSGRAPH_WEBHOOK_PORT
 from gateway.platforms.base import (
     BasePlatformAdapter,
     MessageEvent,
@@ -37,7 +38,7 @@ logger = logging.getLogger(__name__)
 # (d542894ad). Pin a host via extra.host. The all-interfaces default still
 # requires extra.allowed_source_cidrs (see _source_allowlist_required_but_missing).
 DEFAULT_HOST = None
-DEFAULT_PORT = 8646
+DEFAULT_PORT = DEFAULT_MSGRAPH_WEBHOOK_PORT
 DEFAULT_WEBHOOK_PATH = "/msgraph/webhook"
 DEFAULT_MAX_SEEN_RECEIPTS = 5000
 DEFAULT_MAX_BODY_BYTES = 1_048_576

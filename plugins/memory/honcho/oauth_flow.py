@@ -24,13 +24,14 @@ from urllib.parse import parse_qs, urlencode, urlparse
 
 from plugins.memory.honcho import oauth
 from plugins.memory.honcho.client import resolve_active_host, resolve_config_path
+from hermes_constants import DEFAULT_HONCHO_OAUTH_LOOPBACK_PORT
 
 logger = logging.getLogger(__name__)
 
 # The loopback redirect registered for the Hermes OAuth client. IP-literal so
 # the browser can't resolve the advertised host to ::1 and miss the IPv4 bind.
 LOOPBACK_HOST = "127.0.0.1"
-LOOPBACK_PORT = 8765
+LOOPBACK_PORT = DEFAULT_HONCHO_OAUTH_LOOPBACK_PORT
 LOOPBACK_REDIRECT_URI = f"http://{LOOPBACK_HOST}:{LOOPBACK_PORT}/callback"
 
 # Pending authorizations live only until their callback returns; keyed by the
